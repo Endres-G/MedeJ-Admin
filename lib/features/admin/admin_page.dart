@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mede_ja_admin/features/admin/admin_model.dart';
+import 'package:mede_ja_admin/features/admin/admin_repo.dart';
 
 class AdministratorsPage extends StatefulWidget {
   const AdministratorsPage({super.key});
@@ -9,36 +11,54 @@ class AdministratorsPage extends StatefulWidget {
 }
 
 class _AdministratorsPageState extends State<AdministratorsPage> {
-  final List<Administrator> _administrators = [
-    Administrator(
-      id: 'ADM-001',
-      name: 'Administradora ABC',
-      email: 'contato@abc.com',
-      condominiums: 8,
-      accounts: 24,
-      active: true,
-    ),
-    Administrator(
-      id: 'ADM-002',
-      name: 'Administradora XYZ',
-      email: 'contato@xyz.com',
-      condominiums: 3,
-      accounts: 10,
-      active: true,
-    ),
-    Administrator(
-      id: 'ADM-003',
-      name: 'Administradora Central',
-      email: 'contato@central.com',
-      condominiums: 5,
-      accounts: 18,
-      active: false,
-    ),
-  ];
+  final AdministratorRepository _repository = AdministratorRepository();
+
+  List<AdministratorModel> _administrators = [];
 
   String _search = '';
 
-  List<Administrator> get _filteredAdministrators {
+  bool _isLoading = true;
+  bool _isCreating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAdministrators();
+  }
+
+  Future<void> _loadAdministrators() async {
+    try {
+      debugPrint('🔵 [ADMIN] Carregando administradoras...');
+
+      final administrators = await _repository.getAdministrators();
+
+      debugPrint(
+        '🟢 [ADMIN] ${administrators.length} administradoras encontradas.',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _administrators = administrators;
+        _isLoading = false;
+      });
+    } catch (e, stackTrace) {
+      debugPrint('🔴 [ADMIN] Erro ao carregar administradoras: $e');
+      debugPrint('🔴 [ADMIN] StackTrace:\n$stackTrace');
+
+      if (!mounted) return;
+
+      setState(() {
+        _isLoading = false;
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro: $e')));
+    }
+  }
+
+  List<AdministratorModel> get _filteredAdministrators {
     if (_search.trim().isEmpty) {
       return _administrators;
     }
@@ -164,7 +184,9 @@ class _AdministratorsPageState extends State<AdministratorsPage> {
             (constraints.maxWidth - ((columns - 1) * spacing)) / columns;
 
         final total = _administrators.length;
+
         final active = _administrators.where((item) => item.active).length;
+
         final inactive = total - active;
 
         return Wrap(
@@ -202,6 +224,15 @@ class _AdministratorsPageState extends State<AdministratorsPage> {
   }
 
   Widget _buildAdministratorsList(BuildContext context) {
+    if (_isLoading) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(40),
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     final administrators = _filteredAdministrators;
 
     if (administrators.isEmpty) {
@@ -246,14 +277,41 @@ class _AdministratorsPageState extends State<AdministratorsPage> {
     );
   }
 
-  void _openAdministrator(Administrator administrator) {
+  void _openAdministrator(AdministratorModel administrator) {
     context.go('/administrators/${administrator.id}');
   }
 
-  void _toggleAdministrator(Administrator administrator) {
-    setState(() {
-      administrator.active = !administrator.active;
-    });
+  Future<void> _toggleAdministrator(AdministratorModel administrator) async {
+    final updated = AdministratorModel(
+      id: administrator.id,
+      name: administrator.name,
+      email: administrator.email,
+      phone: administrator.phone,
+      active: !administrator.active,
+      createdAt: administrator.createdAt,
+    );
+
+    try {
+      await _repository.updateAdministrator(updated);
+
+      if (!mounted) return;
+
+      setState(() {
+        final index = _administrators.indexWhere(
+          (item) => item.id == administrator.id,
+        );
+
+        if (index != -1) {
+          _administrators[index] = updated;
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Erro ao atualizar administradora.')),
+      );
+    }
   }
 
   void _showCreateAdministratorDialog() {
@@ -262,7 +320,7 @@ class _AdministratorsPageState extends State<AdministratorsPage> {
 
     showDialog(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Nova administradora'),
           content: SizedBox(
@@ -291,34 +349,80 @@ class _AdministratorsPageState extends State<AdministratorsPage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: _isCreating
+                  ? null
+                  : () => Navigator.pop(dialogContext),
               child: const Text('Cancelar'),
             ),
             FilledButton(
-              onPressed: () {
-                final name = nameController.text.trim();
-                final email = emailController.text.trim();
+              onPressed: _isCreating
+                  ? null
+                  : () async {
+                      final name = nameController.text.trim();
+                      final email = emailController.text.trim();
 
-                if (name.isEmpty || email.isEmpty) {
-                  return;
-                }
+                      if (name.isEmpty || email.isEmpty) {
+                        return;
+                      }
 
-                setState(() {
-                  _administrators.add(
-                    Administrator(
-                      id: 'ADM-${(_administrators.length + 1).toString().padLeft(3, '0')}',
-                      name: name,
-                      email: email,
-                      condominiums: 0,
-                      accounts: 0,
-                      active: true,
-                    ),
-                  );
-                });
+                      setState(() {
+                        _isCreating = true;
+                      });
 
-                Navigator.pop(context);
-              },
-              child: const Text('Criar'),
+                      try {
+                        debugPrint(
+                          '🟡 [ADMIN CREATE] Criando administradora...',
+                        );
+                        debugPrint('🟡 [ADMIN CREATE] Nome: $name');
+                        debugPrint('🟡 [ADMIN CREATE] E-mail: $email');
+
+                        final administrator = AdministratorModel(
+                          id: '',
+                          name: name,
+                          email: email,
+                          active: true,
+                        );
+
+                        final id = await _repository.createAdministrator(
+                          administrator,
+                        );
+
+                        debugPrint('🟢 [ADMIN CREATE] Criada com ID: $id');
+
+                        if (!mounted) return;
+
+                        Navigator.pop(dialogContext);
+
+                        await _loadAdministrators();
+
+                        if (!mounted) return;
+
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Administradora criada com sucesso.'),
+                          ),
+                        );
+                      } catch (e) {
+                        if (!mounted) return;
+
+                        setState(() {
+                          _isCreating = false;
+                        });
+
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Erro ao criar administradora.'),
+                          ),
+                        );
+                      }
+                    },
+              child: _isCreating
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Criar'),
             ),
           ],
         );
@@ -327,26 +431,8 @@ class _AdministratorsPageState extends State<AdministratorsPage> {
   }
 }
 
-class Administrator {
-  final String id;
-  final String name;
-  final String email;
-  final int condominiums;
-  final int accounts;
-  bool active;
-
-  Administrator({
-    required this.id,
-    required this.name,
-    required this.email,
-    required this.condominiums,
-    required this.accounts,
-    required this.active,
-  });
-}
-
 class _AdministratorTile extends StatelessWidget {
-  final Administrator administrator;
+  final AdministratorModel administrator;
   final VoidCallback onOpen;
   final VoidCallback onToggle;
 
@@ -372,11 +458,7 @@ class _AdministratorTile extends StatelessWidget {
       ),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 6),
-        child: Text(
-          '${administrator.email} • '
-          '${administrator.condominiums} condomínios • '
-          '${administrator.accounts} contas',
-        ),
+        child: Text(administrator.email),
       ),
       trailing: Wrap(
         spacing: 8,

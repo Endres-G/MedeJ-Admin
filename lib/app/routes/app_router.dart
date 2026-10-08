@@ -1,6 +1,11 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
+
 import 'package:mede_ja_admin/app/routes/app_routes.dart';
+import 'package:mede_ja_admin/features/auth/login_page.dart';
 import 'package:mede_ja_admin/features/admin/admin_details_page.dart';
 import 'package:mede_ja_admin/features/admin/admin_page.dart';
 import 'package:mede_ja_admin/features/apartamentos/apartamento_page.dart';
@@ -9,22 +14,48 @@ import 'package:mede_ja_admin/features/blocos/bloco_detail_page.dart';
 import 'package:mede_ja_admin/features/blocos/bloco_page.dart';
 import 'package:mede_ja_admin/features/blocos/new_bloco_page.dart';
 import 'package:mede_ja_admin/features/condominos/condominio_detail_page.dart';
-import 'package:mede_ja_admin/features/condominos/condominio_page.dart';
 import 'package:mede_ja_admin/features/condominos/novo_condominio_page.dart';
-import 'package:mede_ja_admin/features/contas/contas_page.dart';
 import 'package:mede_ja_admin/features/dashboard/dashboard_page.dart';
-import 'package:mede_ja_admin/features/leituras/leitura_page.dart';
-import 'package:mede_ja_admin/features/report/report_page.dart';
 import 'package:mede_ja_admin/features/users/new_condominio_user_page.dart';
 import 'package:mede_ja_admin/features/users/user_condominio_page.dart';
-import 'package:mede_ja_admin/features/users/users_page.dart';
 
 import '../widgets/app_shell.dart';
 
 class AppRouter {
   static final router = GoRouter(
     initialLocation: AppRoutes.dashboard,
+
+    refreshListenable: GoRouterRefreshStream(
+      FirebaseAuth.instance.authStateChanges(),
+    ),
+
+    redirect: (context, state) {
+      final isLoggedIn = FirebaseAuth.instance.currentUser != null;
+      final isLoginPage = state.matchedLocation == AppRoutes.login;
+
+      if (!isLoggedIn) {
+        if (!isLoginPage) {
+          return AppRoutes.login;
+        }
+
+        return null;
+      }
+
+      if (isLoginPage) {
+        return AppRoutes.dashboard;
+      }
+
+      return null;
+    },
+
     routes: [
+      GoRoute(
+        path: AppRoutes.login,
+        builder: (context, state) {
+          return const LoginPage();
+        },
+      ),
+
       ShellRoute(
         builder: (context, state, child) {
           return AppShell(child: child);
@@ -138,4 +169,20 @@ class AppRouter {
       ),
     ],
   );
+}
+
+class GoRouterRefreshStream extends ChangeNotifier {
+  GoRouterRefreshStream(Stream<dynamic> stream) {
+    _subscription = stream.listen((_) {
+      notifyListeners();
+    });
+  }
+
+  late final StreamSubscription<dynamic> _subscription;
+
+  @override
+  void dispose() {
+    _subscription.cancel();
+    super.dispose();
+  }
 }
