@@ -15,16 +15,45 @@ class AdministratorModel {
     this.createdAt,
   });
 
+  AdministratorModel copyWith({
+    String? id,
+    String? name,
+    String? email,
+    String? phone,
+    bool clearPhone = false,
+    bool? active,
+    DateTime? createdAt,
+  }) {
+    return AdministratorModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      email: email ?? this.email,
+      phone: clearPhone ? null : (phone ?? this.phone),
+      active: active ?? this.active,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
   factory AdministratorModel.fromMap(String id, Map<String, dynamic> map) {
+    final rawCreatedAt = map['createdAt'];
+    DateTime? parsedCreatedAt;
+    if (rawCreatedAt is DateTime) {
+      parsedCreatedAt = rawCreatedAt;
+    } else if (rawCreatedAt != null) {
+      try {
+        parsedCreatedAt = (rawCreatedAt as dynamic).toDate() as DateTime?;
+      } catch (_) {
+        parsedCreatedAt = null;
+      }
+    }
+
     return AdministratorModel(
       id: id,
       name: map['name'] as String? ?? '',
       email: map['email'] as String? ?? '',
       phone: map['phone'] as String?,
       active: map['active'] as bool? ?? true,
-      createdAt: map['createdAt'] != null
-          ? (map['createdAt'] as dynamic).toDate()
-          : null,
+      createdAt: parsedCreatedAt,
     );
   }
 
@@ -34,7 +63,7 @@ class AdministratorModel {
       'email': email,
       'phone': phone,
       'active': active,
-      'createdAt': createdAt,
+      if (createdAt != null) 'createdAt': createdAt,
     };
   }
 }

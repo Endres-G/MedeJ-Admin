@@ -1,14 +1,42 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mede_ja_admin/app/routes/app_routes.dart';
+import 'package:mede_ja_admin/features/admin/admin_details_controller.dart';
+import 'package:mede_ja_admin/features/admin/admin_model.dart';
 
-class AdminDetailsPage extends StatelessWidget {
+class AdminDetailsPage extends ConsumerStatefulWidget {
   final String administratorId;
 
   const AdminDetailsPage({super.key, required this.administratorId});
 
   @override
+  ConsumerState<AdminDetailsPage> createState() => _AdminDetailsPageState();
+}
+
+class _AdminDetailsPageState extends ConsumerState<AdminDetailsPage> {
+  String _search = '';
+
+  List<CondominiumOverviewItem> _filterCondominiums(
+    List<CondominiumOverviewItem> items,
+  ) {
+    final query = _search.trim().toLowerCase();
+    if (query.isEmpty) {
+      return items;
+    }
+
+    return items.where((item) {
+      return item.condominium.name.toLowerCase().contains(query) ||
+          item.condominium.address.toLowerCase().contains(query);
+    }).toList();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final state = ref.watch(
+      adminDetailsControllerProvider(widget.administratorId),
+    );
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final isSmall = constraints.maxWidth < 700;
@@ -18,15 +46,25 @@ class AdminDetailsPage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeader(context, isSmall),
-
-              const SizedBox(height: 32),
-
-              _buildSummary(context),
-
-              const SizedBox(height: 32),
-
-              _buildCondominiums(context),
+              _buildTopBar(context, state),
+              const SizedBox(height: 24),
+              if (state.isLoading && state.administrator == null)
+                _buildLoadingState()
+              else if (state.error != null && state.administrator == null)
+                _buildErrorState(context, state.error!)
+              else if (state.administrator != null) ...[
+                _buildHeader(context, state.administrator!, state, isSmall),
+                const SizedBox(height: 32),
+                if (state.error != null)
+                  _buildErrorState(context, state.error!)
+                else if (state.isLoading)
+                  _buildLoadingState()
+                else ...[
+                  _buildSummary(context, state),
+                  const SizedBox(height: 32),
+                  _buildCondominiums(context, state, isSmall),
+                ],
+              ],
             ],
           ),
         );
@@ -34,8 +72,108 @@ class AdminDetailsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context, bool isSmall) {
-    final header = Row(
+  Widget _buildTopBar(BuildContext context, AdminDetailsState state) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        TextButton.icon(
+          onPressed: () => context.go(AppRoutes.administrators),
+          icon: const Icon(Icons.arrow_back),
+          label: const Text('Administradoras'),
+        ),
+        IconButton(
+          tooltip: 'Atualizar dados',
+          onPressed: state.isLoading
+              ? null
+              : () => ref
+                    .read(
+                      adminDetailsControllerProvider(
+                        widget.administratorId,
+                      ).notifier,
+                    )
+                    .load(),
+          icon: const Icon(Icons.refresh),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return const Card(
+      child: Padding(
+        padding: EdgeInsets.symmetric(vertical: 56, horizontal: 24),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('Carregando dados da administradora...'),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildErrorState(BuildContext context, String message) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.error_outline, size: 48, color: colorScheme.error),
+                const SizedBox(height: 16),
+                Text(
+                  'Não foi possível carregar os dados',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 20),
+                FilledButton.icon(
+                  onPressed: () => ref
+                      .read(
+                        adminDetailsControllerProvider(
+                          widget.administratorId,
+                        ).notifier,
+                      )
+                      .load(),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Tentar novamente'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(
+    BuildContext context,
+    AdministratorModel administrator,
+    AdminDetailsState state,
+    bool isSmall,
+  ) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final hasPhone =
+        administrator.phone != null && administrator.phone!.trim().isNotEmpty;
+
+    final infoSection = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         CircleAvatar(
@@ -43,7 +181,7 @@ class AdminDetailsPage extends StatelessWidget {
           child: Icon(
             Icons.business_outlined,
             size: 30,
-            color: Theme.of(context).colorScheme.primary,
+            color: colorScheme.primary,
           ),
         ),
         const SizedBox(width: 16),
@@ -52,22 +190,73 @@ class AdminDetailsPage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Administradora ABC',
+                administrator.name,
                 style: Theme.of(context).textTheme.headlineMedium?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
               ),
               const SizedBox(height: 6),
-              Text(
-                'contato@abc.com',
-                style: Theme.of(context).textTheme.bodyLarge,
+              Wrap(
+                spacing: 16,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.email_outlined,
+                        size: 18,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        administrator.email,
+                        style: Theme.of(context).textTheme.bodyLarge,
+                      ),
+                    ],
+                  ),
+                  if (hasPhone)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.phone_outlined,
+                          size: 18,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          administrator.phone!,
+                          style: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                      ],
+                    ),
+                  if (administrator.createdAt != null)
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.calendar_today_outlined,
+                          size: 16,
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Desde ${_formatDate(administrator.createdAt!)}',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(color: colorScheme.onSurfaceVariant),
+                        ),
+                      ],
+                    ),
+                ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Chip(
-                label: const Text('Ativa'),
-                backgroundColor: Theme.of(
-                  context,
-                ).colorScheme.secondaryContainer,
+                label: Text(administrator.active ? 'Ativa' : 'Inativa'),
+                backgroundColor: administrator.active
+                    ? colorScheme.secondaryContainer
+                    : colorScheme.surfaceContainerHighest,
               ),
             ],
           ),
@@ -75,32 +264,49 @@ class AdminDetailsPage extends StatelessWidget {
       ],
     );
 
+    final actionsSection = Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      children: [
+        OutlinedButton.icon(
+          onPressed: state.isSaving
+              ? null
+              : () => _showEditAdministratorDialog(administrator),
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('Editar'),
+        ),
+        OutlinedButton.icon(
+          onPressed: state.isSaving
+              ? null
+              : () => _confirmAndToggleActive(administrator),
+          icon: Icon(
+            administrator.active
+                ? Icons.pause_circle_outline
+                : Icons.check_circle_outline,
+          ),
+          label: Text(administrator.active ? 'Desativar' : 'Ativar'),
+        ),
+      ],
+    );
+
     if (isSmall) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildBackButton(context),
-          const SizedBox(height: 20),
-          header,
-        ],
+        children: [infoSection, const SizedBox(height: 16), actionsSection],
       );
     }
 
-    return Column(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [_buildBackButton(context), const SizedBox(height: 24), header],
+      children: [
+        Expanded(child: infoSection),
+        const SizedBox(width: 16),
+        actionsSection,
+      ],
     );
   }
 
-  Widget _buildBackButton(BuildContext context) {
-    return TextButton.icon(
-      onPressed: () => context.go(AppRoutes.administrators),
-      icon: const Icon(Icons.arrow_back),
-      label: const Text('Administradoras'),
-    );
-  }
-
-  Widget _buildSummary(BuildContext context) {
+  Widget _buildSummary(BuildContext context, AdminDetailsState state) {
     return LayoutBuilder(
       builder: (context, constraints) {
         int columns;
@@ -118,31 +324,41 @@ class AdminDetailsPage extends StatelessWidget {
         final width =
             (constraints.maxWidth - ((columns - 1) * spacing)) / columns;
 
+        final condominiumSubtitle = state.totalCondominiums > 0
+            ? '${state.activeCondominiums} ${_pluralWord(state.activeCondominiums, 'ativo', 'ativos')}'
+            : null;
+
+        final apartmentSubtitle = state.totalBlocks > 0
+            ? 'em ${_pluralize(state.totalBlocks, 'bloco', 'blocos')}'
+            : null;
+
         return Wrap(
           spacing: spacing,
           runSpacing: spacing,
           children: [
             SizedBox(
               width: width,
-              child: const _SummaryCard(
+              child: _SummaryCard(
                 title: 'Condomínios',
-                value: '8',
+                value: '${state.totalCondominiums}',
+                subtitle: condominiumSubtitle,
                 icon: Icons.apartment_outlined,
               ),
             ),
             SizedBox(
               width: width,
-              child: const _SummaryCard(
+              child: _SummaryCard(
                 title: 'Contas',
-                value: '24',
+                value: '${state.totalUsers}',
                 icon: Icons.people_outline,
               ),
             ),
             SizedBox(
               width: width,
-              child: const _SummaryCard(
+              child: _SummaryCard(
                 title: 'Apartamentos',
-                value: '1.240',
+                value: '${state.totalApartments}',
+                subtitle: apartmentSubtitle,
                 icon: Icons.home_work_outlined,
               ),
             ),
@@ -152,126 +368,518 @@ class AdminDetailsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildCondominiums(BuildContext context) {
+  Widget _buildCondominiums(
+    BuildContext context,
+    AdminDetailsState state,
+    bool isSmall,
+  ) {
+    final filtered = _filterCondominiums(state.condominiums);
+
+    final headerTitle = Text(
+      'Condomínios',
+      style: Theme.of(
+        context,
+      ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+    );
+
+    final newCondominiumButton = FilledButton.icon(
+      onPressed: () {
+        context.go(
+          AppRoutes.newCondominium.replaceFirst(
+            ':administratorId',
+            widget.administratorId,
+          ),
+        );
+      },
+      icon: const Icon(Icons.add),
+      label: const Text('Novo condomínio'),
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Condomínios',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              ),
-            ),
-            FilledButton.icon(
-              onPressed: () {
-                context.go(
-                  AppRoutes.newCondominium.replaceFirst(
-                    ':administratorId',
-                    administratorId,
-                  ),
-                );
-              },
-              icon: const Icon(Icons.add),
-              label: const Text('Novo condomínio'),
-            ),
-          ],
-        ),
-
-        const SizedBox(height: 16),
-
-        Card(
-          clipBehavior: Clip.antiAlias,
-          child: Column(
+        if (isSmall) ...[
+          headerTitle,
+          const SizedBox(height: 12),
+          SizedBox(width: double.infinity, child: newCondominiumButton),
+        ] else
+          Row(
             children: [
-              _CondominiumTile(
-                name: 'Residencial Jardim',
-                details: '3 blocos • 120 apartamentos',
-                status: 'Configuração completa',
-                onOpen: () {
-                  context.go(
-                    AppRoutes.condominiumDetails.replaceFirst(
-                      ':condominiumId',
-                      'cond-001',
-                    ),
-                  );
-                },
-              ),
-              const Divider(height: 1),
-              _CondominiumTile(
-                name: 'Edifício Central',
-                details: '2 blocos • 80 apartamentos',
-                status: 'Configuração incompleta',
-                onOpen: () {
-                  context.go(
-                    AppRoutes.condominiumDetails.replaceFirst(
-                      ':condominiumId',
-                      'cond-002',
-                    ),
-                  );
-                },
-              ),
-              const Divider(height: 1),
-              _CondominiumTile(
-                name: 'Residencial Aurora',
-                details: '4 blocos • 160 apartamentos',
-                status: 'Configuração completa',
-                onOpen: () {},
-              ),
+              Expanded(child: headerTitle),
+              newCondominiumButton,
             ],
           ),
-        ),
+        if (state.condominiums.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          TextField(
+            onChanged: (value) {
+              setState(() {
+                _search = value;
+              });
+            },
+            decoration: InputDecoration(
+              hintText: 'Buscar condomínio por nome ou endereço...',
+              prefixIcon: const Icon(Icons.search),
+              border: const OutlineInputBorder(),
+              suffixIcon: _search.isNotEmpty
+                  ? IconButton(
+                      onPressed: () {
+                        setState(() {
+                          _search = '';
+                        });
+                      },
+                      icon: const Icon(Icons.clear),
+                    )
+                  : null,
+            ),
+          ),
+        ],
+        const SizedBox(height: 16),
+        if (state.condominiums.isEmpty)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(36),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.apartment_outlined,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Nenhum condomínio vinculado.',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Cadastre um condomínio para começar a configurar blocos, apartamentos e contas.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        else if (filtered.isEmpty)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.search_off,
+                      size: 48,
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Nenhum condomínio encontrado para a busca informada.',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        else
+          Card(
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: List.generate(filtered.length, (index) {
+                final item = filtered[index];
+
+                return Column(
+                  children: [
+                    _CondominiumTile(
+                      item: item,
+                      isSmall: isSmall,
+                      onOpen: () => _openCondominium(item.condominium.id),
+                    ),
+                    if (index < filtered.length - 1) const Divider(height: 1),
+                  ],
+                );
+              }),
+            ),
+          ),
       ],
     );
+  }
+
+  void _openCondominium(String condominiumId) {
+    final path = AppRoutes.condominiumDetails.replaceFirst(
+      ':condominiumId',
+      condominiumId,
+    );
+    final uri = Uri(
+      path: path,
+      queryParameters: {'administratorId': widget.administratorId},
+    );
+    context.go(uri.toString());
+  }
+
+  Future<void> _confirmAndToggleActive(AdministratorModel administrator) async {
+    if (administrator.active) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Desativar administradora'),
+            content: Text(
+              'Deseja realmente desativar "${administrator.name}"?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Desativar'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (confirmed != true || !mounted) return;
+    }
+
+    final controller = ref.read(
+      adminDetailsControllerProvider(widget.administratorId).notifier,
+    );
+    final success = await controller.toggleAdministratorActive();
+
+    if (!mounted) return;
+
+    final updatedState = ref.read(
+      adminDetailsControllerProvider(widget.administratorId),
+    );
+
+    if (success) {
+      final isActiveNow = updatedState.administrator?.active ?? false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isActiveNow
+                ? 'Administradora ativada com sucesso.'
+                : 'Administradora desativada com sucesso.',
+          ),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            updatedState.actionError ?? 'Erro ao atualizar administradora.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _showEditAdministratorDialog(
+    AdministratorModel administrator,
+  ) async {
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController(text: administrator.name);
+    final emailController = TextEditingController(text: administrator.email);
+    final phoneController = TextEditingController(
+      text: administrator.phone ?? '',
+    );
+
+    var isSubmitting = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              title: const Text('Editar administradora'),
+              content: SizedBox(
+                width: 460,
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextFormField(
+                        controller: nameController,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: const InputDecoration(
+                          labelText: 'Nome',
+                          prefixIcon: Icon(Icons.business_outlined),
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Informe o nome da administradora.';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'E-mail',
+                          prefixIcon: Icon(Icons.email_outlined),
+                          border: OutlineInputBorder(),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.trim().isEmpty) {
+                            return 'Informe o e-mail.';
+                          }
+                          final trimmed = value.trim();
+                          if (!trimmed.contains('@') ||
+                              !trimmed.contains('.')) {
+                            return 'Informe um e-mail válido.';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: phoneController,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'Telefone (opcional)',
+                          hintText: 'Ex.: (11) 99999-9999',
+                          prefixIcon: Icon(Icons.phone_outlined),
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () => Navigator.pop(dialogContext),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: isSubmitting
+                      ? null
+                      : () async {
+                          if (!formKey.currentState!.validate()) {
+                            return;
+                          }
+
+                          setDialogState(() {
+                            isSubmitting = true;
+                          });
+
+                          final controller = ref.read(
+                            adminDetailsControllerProvider(
+                              widget.administratorId,
+                            ).notifier,
+                          );
+
+                          final success = await controller.updateAdministrator(
+                            name: nameController.text,
+                            email: emailController.text,
+                            phone: phoneController.text,
+                          );
+
+                          if (!mounted) return;
+
+                          if (success) {
+                            if (dialogContext.mounted) {
+                              Navigator.pop(dialogContext);
+                            }
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Administradora atualizada com sucesso.',
+                                ),
+                              ),
+                            );
+                          } else {
+                            setDialogState(() {
+                              isSubmitting = false;
+                            });
+                            final errorMessage = ref
+                                .read(
+                                  adminDetailsControllerProvider(
+                                    widget.administratorId,
+                                  ),
+                                )
+                                .actionError;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  errorMessage ??
+                                      'Erro ao atualizar administradora.',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                  child: isSubmitting
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Salvar'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    nameController.dispose();
+    emailController.dispose();
+    phoneController.dispose();
+  }
+
+  String _formatDate(DateTime date) {
+    final day = date.day.toString().padLeft(2, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    return '$day/$month/${date.year}';
   }
 }
 
 class _CondominiumTile extends StatelessWidget {
-  final String name;
-  final String details;
-  final String status;
+  final CondominiumOverviewItem item;
+  final bool isSmall;
   final VoidCallback onOpen;
 
   const _CondominiumTile({
-    required this.name,
-    required this.details,
-    required this.status,
+    required this.item,
+    required this.isSmall,
     required this.onOpen,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isComplete = status == 'Configuração completa';
+    final colorScheme = Theme.of(context).colorScheme;
+    final condominium = item.condominium;
+    final isComplete = item.isConfigurationComplete;
+    final hasAddress = condominium.address.trim().isNotEmpty;
+
+    final metricsText =
+        '${_pluralize(item.blocksCount, 'bloco', 'blocos')} • '
+        '${_pluralize(item.apartmentsCount, 'apartamento', 'apartamentos')} • '
+        '${_pluralize(item.usersCount, 'conta', 'contas')}';
+
+    final pendingText = !isComplete
+        ? 'Etapas pendentes: ${item.pendingSteps.join(', ')}'
+        : null;
+
+    final statusChips = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (!condominium.active)
+          Chip(
+            label: const Text('Inativo'),
+            backgroundColor: colorScheme.surfaceContainerHighest,
+          ),
+        Chip(
+          label: Text(item.configurationStatusLabel),
+          backgroundColor: isComplete
+              ? colorScheme.secondaryContainer
+              : colorScheme.tertiaryContainer,
+        ),
+        FilledButton.tonal(onPressed: onOpen, child: const Text('Abrir')),
+      ],
+    );
+
+    if (isSmall) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  child: Icon(
+                    Icons.apartment_outlined,
+                    color: colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    condominium.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+            if (hasAddress) ...[
+              const SizedBox(height: 6),
+              Text(
+                condominium.address,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            const SizedBox(height: 6),
+            Text(metricsText, style: Theme.of(context).textTheme.bodyMedium),
+            if (pendingText != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                pendingText,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            statusChips,
+          ],
+        ),
+      );
+    }
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       leading: CircleAvatar(
-        child: Icon(
-          Icons.apartment_outlined,
-          color: Theme.of(context).colorScheme.primary,
-        ),
+        child: Icon(Icons.apartment_outlined, color: colorScheme.primary),
       ),
-      title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+      title: Text(
+        condominium.name,
+        style: const TextStyle(fontWeight: FontWeight.w600),
+      ),
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 6),
-        child: Text(details),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (hasAddress) ...[
+              Text(condominium.address),
+              const SizedBox(height: 2),
+            ],
+            Text(metricsText),
+            if (pendingText != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                pendingText,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
-      trailing: Wrap(
-        spacing: 8,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Chip(
-            label: Text(status),
-            backgroundColor: isComplete
-                ? Theme.of(context).colorScheme.secondaryContainer
-                : Theme.of(context).colorScheme.tertiaryContainer,
-          ),
-          FilledButton.tonal(onPressed: onOpen, child: const Text('Abrir')),
-        ],
-      ),
+      trailing: statusChips,
     );
   }
 }
@@ -279,39 +887,62 @@ class _CondominiumTile extends StatelessWidget {
 class _SummaryCard extends StatelessWidget {
   final String title;
   final String value;
+  final String? subtitle;
   final IconData icon;
 
   const _SummaryCard({
     required this.title,
     required this.value,
+    this.subtitle,
     required this.icon,
   });
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Row(
           children: [
-            Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
+            Icon(icon, size: 32, color: colorScheme.primary),
             const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title),
+                  const SizedBox(height: 4),
+                  Text(
+                    value,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-              ],
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle!,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ],
         ),
       ),
     );
   }
+}
+
+String _pluralWord(int count, String singular, String plural) {
+  return count == 1 ? singular : plural;
+}
+
+String _pluralize(int count, String singular, String plural) {
+  return '$count ${_pluralWord(count, singular, plural)}';
 }
