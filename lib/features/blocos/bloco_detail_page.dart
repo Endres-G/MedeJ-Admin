@@ -5,11 +5,13 @@ import 'package:mede_ja_admin/app/routes/app_routes.dart';
 class BlockDetailsPage extends StatelessWidget {
   final String condominiumId;
   final String blockId;
+  final String? administratorId;
 
   const BlockDetailsPage({
     super.key,
     required this.condominiumId,
     required this.blockId,
+    this.administratorId,
   });
 
   @override
@@ -42,9 +44,9 @@ class BlockDetailsPage extends StatelessWidget {
         TextButton.icon(
           onPressed: () {
             context.go(
-              AppRoutes.condominiumBlocks.replaceFirst(
-                ':condominiumId',
+              AppRoutes.condominiumBlocksPath(
                 condominiumId,
+                administratorId: administratorId,
               ),
             );
           },
@@ -141,6 +143,12 @@ class BlockDetailsPage extends StatelessWidget {
   }
 
   Widget _buildApartments(BuildContext context, bool isSmall) {
+    final newApartmentRoute = AppRoutes.newApartmentPath(
+      condominiumId,
+      administratorId: administratorId,
+      blockId: blockId,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -156,41 +164,24 @@ class BlockDetailsPage extends StatelessWidget {
             ),
             if (!isSmall)
               FilledButton.icon(
-                onPressed: () {
-                  context.go(
-                    AppRoutes.newApartment.replaceFirst(
-                      ':condominiumId',
-                      condominiumId,
-                    ),
-                  );
-                },
+                onPressed: () => context.go(newApartmentRoute),
                 icon: const Icon(Icons.add),
                 label: const Text('Adicionar apartamento'),
               ),
           ],
         ),
-
         if (isSmall) ...[
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () {
-                context.go(
-                  AppRoutes.newApartment.replaceFirst(
-                    ':condominiumId',
-                    condominiumId,
-                  ),
-                );
-              },
+              onPressed: () => context.go(newApartmentRoute),
               icon: const Icon(Icons.add),
               label: const Text('Adicionar apartamento'),
             ),
           ),
         ],
-
         const SizedBox(height: 16),
-
         Card(
           clipBehavior: Clip.antiAlias,
           child: Column(

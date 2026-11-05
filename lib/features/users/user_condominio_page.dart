@@ -4,8 +4,13 @@ import 'package:mede_ja_admin/app/routes/app_routes.dart';
 
 class CondominiumUsersPage extends StatefulWidget {
   final String condominiumId;
+  final String? administratorId;
 
-  const CondominiumUsersPage({super.key, required this.condominiumId});
+  const CondominiumUsersPage({
+    super.key,
+    required this.condominiumId,
+    this.administratorId,
+  });
 
   @override
   State<CondominiumUsersPage> createState() => _CondominiumUsersPageState();
@@ -63,17 +68,11 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeader(context, isSmall),
-
               const SizedBox(height: 32),
-
               _buildSummary(context),
-
               const SizedBox(height: 32),
-
               _buildFilters(context, isSmall),
-
               const SizedBox(height: 16),
-
               _buildUsers(context, filteredUsers),
             ],
           ),
@@ -83,15 +82,20 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
   }
 
   Widget _buildHeader(BuildContext context, bool isSmall) {
+    final newUserRoute = AppRoutes.newCondominiumUserPath(
+      widget.condominiumId,
+      administratorId: widget.administratorId,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextButton.icon(
           onPressed: () {
             context.go(
-              AppRoutes.condominiumDetails.replaceFirst(
-                ':condominiumId',
+              AppRoutes.condominiumDetailsPath(
                 widget.condominiumId,
+                administratorId: widget.administratorId,
               ),
             );
           },
@@ -122,14 +126,7 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
             ),
             if (!isSmall)
               FilledButton.icon(
-                onPressed: () {
-                  context.go(
-                    AppRoutes.newCondominiumUser.replaceFirst(
-                      ':condominiumId',
-                      widget.condominiumId,
-                    ),
-                  );
-                },
+                onPressed: () => context.go(newUserRoute),
                 icon: const Icon(Icons.person_add_outlined),
                 label: const Text('Nova conta'),
               ),
@@ -140,14 +137,7 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () {
-                context.go(
-                  AppRoutes.newCondominiumUser.replaceFirst(
-                    ':condominiumId',
-                    widget.condominiumId,
-                  ),
-                );
-              },
+              onPressed: () => context.go(newUserRoute),
               icon: const Icon(Icons.person_add_outlined),
               label: const Text('Nova conta'),
             ),

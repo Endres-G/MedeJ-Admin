@@ -384,12 +384,7 @@ class _AdminDetailsPageState extends ConsumerState<AdminDetailsPage> {
 
     final newCondominiumButton = FilledButton.icon(
       onPressed: () {
-        context.go(
-          AppRoutes.newCondominium.replaceFirst(
-            ':administratorId',
-            widget.administratorId,
-          ),
-        );
+        context.go(AppRoutes.newCondominiumPath(widget.administratorId));
       },
       icon: const Icon(Icons.add),
       label: const Text('Novo condomínio'),
@@ -513,15 +508,12 @@ class _AdminDetailsPageState extends ConsumerState<AdminDetailsPage> {
   }
 
   void _openCondominium(String condominiumId) {
-    final path = AppRoutes.condominiumDetails.replaceFirst(
-      ':condominiumId',
-      condominiumId,
+    context.go(
+      AppRoutes.condominiumDetailsPath(
+        condominiumId,
+        administratorId: widget.administratorId,
+      ),
     );
-    final uri = Uri(
-      path: path,
-      queryParameters: {'administratorId': widget.administratorId},
-    );
-    context.go(uri.toString());
   }
 
   Future<void> _confirmAndToggleActive(AdministratorModel administrator) async {

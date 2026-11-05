@@ -4,8 +4,13 @@ import 'package:mede_ja_admin/app/routes/app_routes.dart';
 
 class CondominiumDetailsPage extends StatelessWidget {
   final String condominiumId;
+  final String? administratorId;
 
-  const CondominiumDetailsPage({super.key, required this.condominiumId});
+  const CondominiumDetailsPage({
+    super.key,
+    required this.condominiumId,
+    this.administratorId,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -18,18 +23,12 @@ class CondominiumDetailsPage extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeader(context, isSmall),
-
+              _buildHeader(context),
               const SizedBox(height: 32),
-
               _buildSummary(context),
-
               const SizedBox(height: 32),
-
               _buildStructure(context),
-
               const SizedBox(height: 32),
-
               _buildUsers(context),
             ],
           ),
@@ -38,7 +37,10 @@ class CondominiumDetailsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context, bool isSmall) {
+  Widget _buildHeader(BuildContext context) {
+    final hasAdminId =
+        administratorId != null && administratorId!.trim().isNotEmpty;
+
     final header = Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -83,9 +85,15 @@ class CondominiumDetailsPage extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextButton.icon(
-          onPressed: () => context.go(AppRoutes.administrators),
+          onPressed: () {
+            if (hasAdminId) {
+              context.go(AppRoutes.administratorDetailsPath(administratorId!));
+            } else {
+              context.go(AppRoutes.condominiums);
+            }
+          },
           icon: const Icon(Icons.arrow_back),
-          label: const Text('Administradoras'),
+          label: Text(hasAdminId ? 'Administradora' : 'Condomínios'),
         ),
         const SizedBox(height: 24),
         header,
@@ -146,6 +154,15 @@ class CondominiumDetailsPage extends StatelessWidget {
   }
 
   Widget _buildStructure(BuildContext context) {
+    final blocksRoute = AppRoutes.condominiumBlocksPath(
+      condominiumId,
+      administratorId: administratorId,
+    );
+    final apartmentsRoute = AppRoutes.condominiumApartmentsPath(
+      condominiumId,
+      administratorId: administratorId,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -160,22 +177,13 @@ class CondominiumDetailsPage extends StatelessWidget {
               ),
             ),
             FilledButton.icon(
-              onPressed: () {
-                context.go(
-                  AppRoutes.condominiumBlocks.replaceFirst(
-                    ':condominiumId',
-                    condominiumId,
-                  ),
-                );
-              },
+              onPressed: () => context.go(blocksRoute),
               icon: const Icon(Icons.domain_add_outlined),
               label: const Text('Gerenciar blocos'),
             ),
           ],
         ),
-
         const SizedBox(height: 16),
-
         Card(
           clipBehavior: Clip.antiAlias,
           child: Column(
@@ -184,28 +192,14 @@ class CondominiumDetailsPage extends StatelessWidget {
                 icon: Icons.domain_outlined,
                 title: 'Blocos',
                 subtitle: '3 blocos cadastrados',
-                onOpen: () {
-                  context.go(
-                    AppRoutes.condominiumBlocks.replaceFirst(
-                      ':condominiumId',
-                      condominiumId,
-                    ),
-                  );
-                },
+                onOpen: () => context.go(blocksRoute),
               ),
               const Divider(height: 1),
               _StructureTile(
                 icon: Icons.home_work_outlined,
                 title: 'Apartamentos',
                 subtitle: '120 apartamentos cadastrados',
-                onOpen: () {
-                  context.go(
-                    AppRoutes.condominiumApartments.replaceFirst(
-                      ':condominiumId',
-                      condominiumId,
-                    ),
-                  );
-                },
+                onOpen: () => context.go(apartmentsRoute),
               ),
             ],
           ),
@@ -215,6 +209,11 @@ class CondominiumDetailsPage extends StatelessWidget {
   }
 
   Widget _buildUsers(BuildContext context) {
+    final usersRoute = AppRoutes.condominiumUsersPath(
+      condominiumId,
+      administratorId: administratorId,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -229,32 +228,23 @@ class CondominiumDetailsPage extends StatelessWidget {
               ),
             ),
             FilledButton.icon(
-              onPressed: () {
-                context.go(
-                  AppRoutes.condominiumUsers.replaceFirst(
-                    ':condominiumId',
-                    condominiumId,
-                  ),
-                );
-              },
+              onPressed: () => context.go(usersRoute),
               icon: const Icon(Icons.people_outline),
               label: const Text('Gerenciar contas'),
             ),
           ],
         ),
-
         const SizedBox(height: 16),
-
         Card(
           clipBehavior: Clip.antiAlias,
-          child: Column(
+          child: const Column(
             children: [
               _UserTile(
                 name: 'João Silva',
                 email: 'joao@email.com',
                 active: true,
               ),
-              const Divider(height: 1),
+              Divider(height: 1),
               _UserTile(
                 name: 'Maria Souza',
                 email: 'maria@email.com',

@@ -4,8 +4,15 @@ import 'package:mede_ja_admin/app/routes/app_routes.dart';
 
 class NewApartmentPage extends StatefulWidget {
   final String condominiumId;
+  final String? administratorId;
+  final String? blockId;
 
-  const NewApartmentPage({super.key, required this.condominiumId});
+  const NewApartmentPage({
+    super.key,
+    required this.condominiumId,
+    this.administratorId,
+    this.blockId,
+  });
 
   @override
   State<NewApartmentPage> createState() => _NewApartmentPageState();
@@ -23,6 +30,11 @@ class _NewApartmentPageState extends State<NewApartmentPage> {
   final _floorsController = TextEditingController();
   final _apartmentsPerFloorController = TextEditingController();
   final _firstNumberController = TextEditingController(text: '101');
+
+  String get _apartmentsRoute => AppRoutes.condominiumApartmentsPath(
+    widget.condominiumId,
+    administratorId: widget.administratorId,
+  );
 
   @override
   void dispose() {
@@ -45,13 +57,9 @@ class _NewApartmentPageState extends State<NewApartmentPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeader(context),
-
               const SizedBox(height: 32),
-
               _buildModeSelector(context),
-
               const SizedBox(height: 24),
-
               _buildForm(context, isSmall),
             ],
           ),
@@ -65,14 +73,7 @@ class _NewApartmentPageState extends State<NewApartmentPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextButton.icon(
-          onPressed: () {
-            context.go(
-              AppRoutes.condominiumApartments.replaceFirst(
-                ':condominiumId',
-                widget.condominiumId,
-              ),
-            );
-          },
+          onPressed: () => context.go(_apartmentsRoute),
           icon: const Icon(Icons.arrow_back),
           label: const Text('Apartamentos'),
         ),
@@ -150,11 +151,8 @@ class _NewApartmentPageState extends State<NewApartmentPage> {
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 24),
-
         _buildBlockDropdown(),
-
         const SizedBox(height: 20),
-
         TextFormField(
           controller: _numberController,
           keyboardType: TextInputType.number,
@@ -172,9 +170,7 @@ class _NewApartmentPageState extends State<NewApartmentPage> {
             return null;
           },
         ),
-
         const SizedBox(height: 32),
-
         _buildActions(context),
       ],
     );
@@ -196,11 +192,8 @@ class _NewApartmentPageState extends State<NewApartmentPage> {
           style: Theme.of(context).textTheme.bodyMedium,
         ),
         const SizedBox(height: 24),
-
         _buildBlockDropdown(),
-
         const SizedBox(height: 20),
-
         if (isSmall)
           Column(
             children: [
@@ -237,9 +230,7 @@ class _NewApartmentPageState extends State<NewApartmentPage> {
               ),
             ],
           ),
-
         const SizedBox(height: 20),
-
         TextFormField(
           controller: _firstNumberController,
           keyboardType: TextInputType.number,
@@ -257,9 +248,7 @@ class _NewApartmentPageState extends State<NewApartmentPage> {
             return null;
           },
         ),
-
         const SizedBox(height: 16),
-
         Card(
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
           child: const Padding(
@@ -279,9 +268,7 @@ class _NewApartmentPageState extends State<NewApartmentPage> {
             ),
           ),
         ),
-
         const SizedBox(height: 32),
-
         _buildActions(context),
       ],
     );
@@ -344,14 +331,7 @@ class _NewApartmentPageState extends State<NewApartmentPage> {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         OutlinedButton(
-          onPressed: () {
-            context.go(
-              AppRoutes.condominiumApartments.replaceFirst(
-                ':condominiumId',
-                widget.condominiumId,
-              ),
-            );
-          },
+          onPressed: () => context.go(_apartmentsRoute),
           child: const Text('Cancelar'),
         ),
         const SizedBox(width: 12),
@@ -386,11 +366,6 @@ class _NewApartmentPageState extends State<NewApartmentPage> {
       );
     }
 
-    context.go(
-      AppRoutes.condominiumApartments.replaceFirst(
-        ':condominiumId',
-        widget.condominiumId,
-      ),
-    );
+    context.go(_apartmentsRoute);
   }
 }

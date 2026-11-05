@@ -4,8 +4,13 @@ import 'package:mede_ja_admin/app/routes/app_routes.dart';
 
 class NewCondominiumUserPage extends StatefulWidget {
   final String condominiumId;
+  final String? administratorId;
 
-  const NewCondominiumUserPage({super.key, required this.condominiumId});
+  const NewCondominiumUserPage({
+    super.key,
+    required this.condominiumId,
+    this.administratorId,
+  });
 
   @override
   State<NewCondominiumUserPage> createState() => _NewCondominiumUserPageState();
@@ -22,6 +27,11 @@ class _NewCondominiumUserPageState extends State<NewCondominiumUserPage> {
   bool _active = true;
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
+
+  String get _usersRoute => AppRoutes.condominiumUsersPath(
+    widget.condominiumId,
+    administratorId: widget.administratorId,
+  );
 
   @override
   void dispose() {
@@ -58,14 +68,7 @@ class _NewCondominiumUserPageState extends State<NewCondominiumUserPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextButton.icon(
-          onPressed: () {
-            context.go(
-              AppRoutes.condominiumUsers.replaceFirst(
-                ':condominiumId',
-                widget.condominiumId,
-              ),
-            );
-          },
+          onPressed: () => context.go(_usersRoute),
           icon: const Icon(Icons.arrow_back),
           label: const Text('Contas e usuários'),
         ),
@@ -105,9 +108,7 @@ class _NewCondominiumUserPageState extends State<NewCondominiumUserPage> {
                 'Informe os dados que serão utilizados para acessar o sistema.',
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
-
               const SizedBox(height: 24),
-
               TextFormField(
                 controller: _nameController,
                 autofocus: true,
@@ -130,9 +131,7 @@ class _NewCondominiumUserPageState extends State<NewCondominiumUserPage> {
                   return null;
                 },
               ),
-
               const SizedBox(height: 20),
-
               TextFormField(
                 controller: _emailController,
                 keyboardType: TextInputType.emailAddress,
@@ -156,9 +155,7 @@ class _NewCondominiumUserPageState extends State<NewCondominiumUserPage> {
                   return null;
                 },
               ),
-
               const SizedBox(height: 20),
-
               TextFormField(
                 controller: _passwordController,
                 obscureText: _obscurePassword,
@@ -192,9 +189,7 @@ class _NewCondominiumUserPageState extends State<NewCondominiumUserPage> {
                   return null;
                 },
               ),
-
               const SizedBox(height: 20),
-
               TextFormField(
                 controller: _confirmPasswordController,
                 obscureText: _obscureConfirmPassword,
@@ -228,9 +223,7 @@ class _NewCondominiumUserPageState extends State<NewCondominiumUserPage> {
                   return null;
                 },
               ),
-
               const SizedBox(height: 24),
-
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Conta ativa'),
@@ -242,13 +235,9 @@ class _NewCondominiumUserPageState extends State<NewCondominiumUserPage> {
                   });
                 },
               ),
-
               const SizedBox(height: 24),
-
               const Divider(),
-
               const SizedBox(height: 24),
-
               _buildActions(context),
             ],
           ),
@@ -262,14 +251,7 @@ class _NewCondominiumUserPageState extends State<NewCondominiumUserPage> {
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
         OutlinedButton(
-          onPressed: () {
-            context.go(
-              AppRoutes.condominiumUsers.replaceFirst(
-                ':condominiumId',
-                widget.condominiumId,
-              ),
-            );
-          },
+          onPressed: () => context.go(_usersRoute),
           child: const Text('Cancelar'),
         ),
         const SizedBox(width: 12),
@@ -288,17 +270,11 @@ class _NewCondominiumUserPageState extends State<NewCondominiumUserPage> {
     }
 
     final name = _nameController.text.trim();
-    final email = _emailController.text.trim();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('Conta de $name criada com sucesso.')),
     );
 
-    context.go(
-      AppRoutes.condominiumUsers.replaceFirst(
-        ':condominiumId',
-        widget.condominiumId,
-      ),
-    );
+    context.go(_usersRoute);
   }
 }

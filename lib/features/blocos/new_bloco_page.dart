@@ -4,8 +4,13 @@ import 'package:mede_ja_admin/app/routes/app_routes.dart';
 
 class NewBlockPage extends StatefulWidget {
   final String condominiumId;
+  final String? administratorId;
 
-  const NewBlockPage({super.key, required this.condominiumId});
+  const NewBlockPage({
+    super.key,
+    required this.condominiumId,
+    this.administratorId,
+  });
 
   @override
   State<NewBlockPage> createState() => _NewBlockPageState();
@@ -14,6 +19,11 @@ class NewBlockPage extends StatefulWidget {
 class _NewBlockPageState extends State<NewBlockPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
+
+  String get _blocksRoute => AppRoutes.condominiumBlocksPath(
+    widget.condominiumId,
+    administratorId: widget.administratorId,
+  );
 
   @override
   void dispose() {
@@ -47,14 +57,7 @@ class _NewBlockPageState extends State<NewBlockPage> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextButton.icon(
-          onPressed: () {
-            context.go(
-              AppRoutes.condominiumBlocks.replaceFirst(
-                ':condominiumId',
-                widget.condominiumId,
-              ),
-            );
-          },
+          onPressed: () => context.go(_blocksRoute),
           icon: const Icon(Icons.arrow_back),
           label: const Text('Blocos'),
         ),
@@ -95,7 +98,6 @@ class _NewBlockPageState extends State<NewBlockPage> {
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
               const SizedBox(height: 24),
-
               TextFormField(
                 controller: _nameController,
                 autofocus: true,
@@ -113,21 +115,12 @@ class _NewBlockPageState extends State<NewBlockPage> {
                   return null;
                 },
               ),
-
               const SizedBox(height: 32),
-
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
                   OutlinedButton(
-                    onPressed: () {
-                      context.go(
-                        AppRoutes.condominiumBlocks.replaceFirst(
-                          ':condominiumId',
-                          widget.condominiumId,
-                        ),
-                      );
-                    },
+                    onPressed: () => context.go(_blocksRoute),
                     child: const Text('Cancelar'),
                   ),
                   const SizedBox(width: 12),
@@ -156,11 +149,6 @@ class _NewBlockPageState extends State<NewBlockPage> {
       SnackBar(content: Text('Bloco "$name" criado com sucesso.')),
     );
 
-    context.go(
-      AppRoutes.condominiumBlocks.replaceFirst(
-        ':condominiumId',
-        widget.condominiumId,
-      ),
-    );
+    context.go(_blocksRoute);
   }
 }

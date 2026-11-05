@@ -4,8 +4,13 @@ import 'package:mede_ja_admin/app/routes/app_routes.dart';
 
 class BlocksPage extends StatelessWidget {
   final String condominiumId;
+  final String? administratorId;
 
-  const BlocksPage({super.key, required this.condominiumId});
+  const BlocksPage({
+    super.key,
+    required this.condominiumId,
+    this.administratorId,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -19,13 +24,9 @@ class BlocksPage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeader(context, isSmall),
-
               const SizedBox(height: 32),
-
               _buildSummary(context),
-
               const SizedBox(height: 32),
-
               _buildBlocks(context),
             ],
           ),
@@ -41,9 +42,9 @@ class BlocksPage extends StatelessWidget {
         TextButton.icon(
           onPressed: () {
             context.go(
-              AppRoutes.condominiumDetails.replaceFirst(
-                ':condominiumId',
+              AppRoutes.condominiumDetailsPath(
                 condominiumId,
+                administratorId: administratorId,
               ),
             );
           },
@@ -74,7 +75,7 @@ class BlocksPage extends StatelessWidget {
             ),
             if (!isSmall)
               FilledButton.icon(
-                onPressed: _openNewBlock,
+                onPressed: () => _openNewBlock(context),
                 icon: const Icon(Icons.add),
                 label: const Text('Novo bloco'),
               ),
@@ -85,7 +86,7 @@ class BlocksPage extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: _openNewBlock,
+              onPressed: () => _openNewBlock(context),
               icon: const Icon(Icons.add),
               label: const Text('Novo bloco'),
             ),
@@ -158,7 +159,6 @@ class BlocksPage extends StatelessWidget {
           ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 16),
-
         Card(
           clipBehavior: Clip.antiAlias,
           child: Column(
@@ -166,19 +166,19 @@ class BlocksPage extends StatelessWidget {
               _BlockTile(
                 name: 'Bloco A',
                 apartments: 40,
-                onOpen: () => _openBlock('block-001'),
+                onOpen: () => _openBlock(context, 'block-001'),
               ),
               const Divider(height: 1),
               _BlockTile(
                 name: 'Bloco B',
                 apartments: 40,
-                onOpen: () => _openBlock('block-002'),
+                onOpen: () => _openBlock(context, 'block-002'),
               ),
               const Divider(height: 1),
               _BlockTile(
                 name: 'Bloco C',
                 apartments: 40,
-                onOpen: () => _openBlock('block-003'),
+                onOpen: () => _openBlock(context, 'block-003'),
               ),
             ],
           ),
@@ -187,18 +187,20 @@ class BlocksPage extends StatelessWidget {
     );
   }
 
-  void _openNewBlock() {
-    final route = AppRoutes.newBlock.replaceFirst(
-      ':condominiumId',
-      condominiumId,
+  void _openNewBlock(BuildContext context) {
+    context.go(
+      AppRoutes.newBlockPath(condominiumId, administratorId: administratorId),
     );
-
-    // O context não está disponível aqui porque o método
-    // é chamado pelo build. Vamos usar uma versão com contexto abaixo.
   }
 
-  void _openBlock(String blockId) {
-    // Será conectado na próxima etapa.
+  void _openBlock(BuildContext context, String blockId) {
+    context.go(
+      AppRoutes.blockDetailsPath(
+        condominiumId,
+        blockId,
+        administratorId: administratorId,
+      ),
+    );
   }
 }
 

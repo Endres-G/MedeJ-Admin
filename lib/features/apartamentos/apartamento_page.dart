@@ -4,8 +4,13 @@ import 'package:mede_ja_admin/app/routes/app_routes.dart';
 
 class ApartmentsPage extends StatefulWidget {
   final String condominiumId;
+  final String? administratorId;
 
-  const ApartmentsPage({super.key, required this.condominiumId});
+  const ApartmentsPage({
+    super.key,
+    required this.condominiumId,
+    this.administratorId,
+  });
 
   @override
   State<ApartmentsPage> createState() => _ApartmentsPageState();
@@ -49,17 +54,11 @@ class _ApartmentsPageState extends State<ApartmentsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeader(context, isSmall),
-
               const SizedBox(height: 32),
-
               _buildSummary(context),
-
               const SizedBox(height: 32),
-
               _buildFilters(context, isSmall),
-
               const SizedBox(height: 16),
-
               _buildApartments(context, filteredApartments),
             ],
           ),
@@ -69,15 +68,20 @@ class _ApartmentsPageState extends State<ApartmentsPage> {
   }
 
   Widget _buildHeader(BuildContext context, bool isSmall) {
+    final newApartmentRoute = AppRoutes.newApartmentPath(
+      widget.condominiumId,
+      administratorId: widget.administratorId,
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TextButton.icon(
           onPressed: () {
             context.go(
-              AppRoutes.condominiumDetails.replaceFirst(
-                ':condominiumId',
+              AppRoutes.condominiumDetailsPath(
                 widget.condominiumId,
+                administratorId: widget.administratorId,
               ),
             );
           },
@@ -108,14 +112,7 @@ class _ApartmentsPageState extends State<ApartmentsPage> {
             ),
             if (!isSmall)
               FilledButton.icon(
-                onPressed: () {
-                  context.go(
-                    AppRoutes.newApartment.replaceFirst(
-                      ':condominiumId',
-                      widget.condominiumId,
-                    ),
-                  );
-                },
+                onPressed: () => context.go(newApartmentRoute),
                 icon: const Icon(Icons.add),
                 label: const Text('Novo apartamento'),
               ),
@@ -126,14 +123,7 @@ class _ApartmentsPageState extends State<ApartmentsPage> {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: () {
-                context.go(
-                  AppRoutes.newApartment.replaceFirst(
-                    ':condominiumId',
-                    widget.condominiumId,
-                  ),
-                );
-              },
+              onPressed: () => context.go(newApartmentRoute),
               icon: const Icon(Icons.add),
               label: const Text('Novo apartamento'),
             ),
@@ -196,55 +186,54 @@ class _ApartmentsPageState extends State<ApartmentsPage> {
   }
 
   Widget _buildFilters(BuildContext context, bool isSmall) {
-    final filters = [
-      Expanded(
-        child: TextField(
-          decoration: const InputDecoration(
-            labelText: 'Buscar apartamento',
-            hintText: 'Ex.: 101',
-            prefixIcon: Icon(Icons.search),
-            border: OutlineInputBorder(),
-          ),
-          onChanged: (value) {
-            setState(() {
-              _search = value;
-            });
-          },
-        ),
+    final searchField = TextField(
+      decoration: const InputDecoration(
+        labelText: 'Buscar apartamento',
+        hintText: 'Ex.: 101',
+        prefixIcon: Icon(Icons.search),
+        border: OutlineInputBorder(),
       ),
-      const SizedBox(width: 16),
-      SizedBox(
-        width: isSmall ? double.infinity : 220,
-        child: DropdownButtonFormField<String>(
-          initialValue: _selectedBlock,
-          decoration: const InputDecoration(
-            labelText: 'Bloco',
-            border: OutlineInputBorder(),
-          ),
-          items: const [
-            DropdownMenuItem(value: 'Todos', child: Text('Todos os blocos')),
-            DropdownMenuItem(value: 'Bloco A', child: Text('Bloco A')),
-            DropdownMenuItem(value: 'Bloco B', child: Text('Bloco B')),
-            DropdownMenuItem(value: 'Bloco C', child: Text('Bloco C')),
-          ],
-          onChanged: (value) {
-            if (value == null) return;
+      onChanged: (value) {
+        setState(() {
+          _search = value;
+        });
+      },
+    );
 
-            setState(() {
-              _selectedBlock = value;
-            });
-          },
-        ),
+    final blockDropdown = DropdownButtonFormField<String>(
+      initialValue: _selectedBlock,
+      decoration: const InputDecoration(
+        labelText: 'Bloco',
+        border: OutlineInputBorder(),
       ),
-    ];
+      items: const [
+        DropdownMenuItem(value: 'Todos', child: Text('Todos os blocos')),
+        DropdownMenuItem(value: 'Bloco A', child: Text('Bloco A')),
+        DropdownMenuItem(value: 'Bloco B', child: Text('Bloco B')),
+        DropdownMenuItem(value: 'Bloco C', child: Text('Bloco C')),
+      ],
+      onChanged: (value) {
+        if (value == null) return;
+
+        setState(() {
+          _selectedBlock = value;
+        });
+      },
+    );
 
     if (isSmall) {
       return Column(
-        children: [filters[0], const SizedBox(height: 16), filters[2]],
+        children: [searchField, const SizedBox(height: 16), blockDropdown],
       );
     }
 
-    return Row(children: filters);
+    return Row(
+      children: [
+        Expanded(child: searchField),
+        const SizedBox(width: 16),
+        SizedBox(width: 220, child: blockDropdown),
+      ],
+    );
   }
 
   Widget _buildApartments(BuildContext context, List<_Apartment> apartments) {
