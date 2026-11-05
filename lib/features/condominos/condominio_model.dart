@@ -13,15 +13,41 @@ class CondominiumModel {
     this.createdAt,
   });
 
+  CondominiumModel copyWith({
+    String? id,
+    String? name,
+    String? address,
+    bool? active,
+    DateTime? createdAt,
+  }) {
+    return CondominiumModel(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      address: address ?? this.address,
+      active: active ?? this.active,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
+
   factory CondominiumModel.fromMap(String id, Map<String, dynamic> map) {
+    final rawCreatedAt = map['createdAt'];
+    DateTime? parsedCreatedAt;
+    if (rawCreatedAt is DateTime) {
+      parsedCreatedAt = rawCreatedAt;
+    } else if (rawCreatedAt != null) {
+      try {
+        parsedCreatedAt = (rawCreatedAt as dynamic).toDate() as DateTime?;
+      } catch (_) {
+        parsedCreatedAt = null;
+      }
+    }
+
     return CondominiumModel(
       id: id,
       name: map['name'] as String? ?? '',
       address: map['address'] as String? ?? '',
       active: map['active'] as bool? ?? true,
-      createdAt: map['createdAt'] != null
-          ? (map['createdAt'] as dynamic).toDate()
-          : null,
+      createdAt: parsedCreatedAt,
     );
   }
 
@@ -30,7 +56,7 @@ class CondominiumModel {
       'name': name,
       'address': address,
       'active': active,
-      'createdAt': createdAt,
+      if (createdAt != null) 'createdAt': createdAt,
     };
   }
 }

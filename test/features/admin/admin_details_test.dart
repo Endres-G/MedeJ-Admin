@@ -398,4 +398,89 @@ void main() {
       expect(find.text('Recuperada Ltda'), findsOneWidget);
     },
   );
+
+  testWidgets(
+    'Dialog Editar administradora habilita Salvar apenas quando algum campo é alterado com valor válido',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final adminRepo = _FakeAdministratorRepository(
+        administrator: const AdministratorModel(
+          id: 'adm-1',
+          name: 'Gestão Sul Administradora',
+          email: 'contato@gestaosul.com.br',
+          phone: '(51) 99999-1234',
+          active: true,
+        ),
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            administratorRepositoryProvider.overrideWith((ref) => adminRepo),
+            condominiumRepositoryProvider.overrideWith(
+              (ref) => _FakeCondominiumRepository(const []),
+            ),
+            blockRepositoryProvider.overrideWith(
+              (ref) => _FakeBlockRepository(const {}),
+            ),
+            apartmentRepositoryProvider.overrideWith(
+              (ref) => _FakeApartmentRepository(const {}),
+            ),
+            userRepositoryProvider.overrideWith(
+              (ref) => _FakeUserRepository(const {}),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: AdminDetailsPage(administratorId: 'adm-1')),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Editar'));
+      await tester.pumpAndSettle();
+
+      FilledButton saveButton() => tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Salvar'),
+      );
+
+      // Ao abrir sem alterações, o botão Salvar deve iniciar desabilitado
+      expect(saveButton().onPressed, isNull);
+      expect(
+        find.text('Altere ao menos um campo para habilitar o salvamento.'),
+        findsOneWidget,
+      );
+
+      final nameField = find.widgetWithText(TextFormField, 'Nome *');
+
+      // Alterando o nome para um valor válido, Salvar é habilitado
+      await tester.enterText(nameField, 'Gestão Sul Atualizada');
+      await tester.pump();
+      expect(saveButton().onPressed, isNotNull);
+
+      // Revertendo para o valor original, Salvar volta a ficar desabilitado
+      await tester.enterText(nameField, 'Gestão Sul Administradora');
+      await tester.pump();
+      expect(saveButton().onPressed, isNull);
+
+      // Esvaziando um campo obrigatório, Salvar permanece desabilitado
+      await tester.enterText(nameField, '');
+      await tester.pump();
+      expect(saveButton().onPressed, isNull);
+
+      // Preenchendo com alteração válida e salvando
+      await tester.enterText(nameField, 'Gestão Sul Atualizada');
+      await tester.pump();
+      expect(saveButton().onPressed, isNotNull);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Salvar'));
+      await tester.pumpAndSettle();
+
+      expect(adminRepo.lastUpdated?.name, 'Gestão Sul Atualizada');
+      expect(find.text('Gestão Sul Atualizada'), findsOneWidget);
+    },
+  );
 }

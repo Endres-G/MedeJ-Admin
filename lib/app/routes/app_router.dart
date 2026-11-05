@@ -26,6 +26,13 @@ import 'package:mede_ja_admin/features/users/user_condominio_page.dart';
 import '../widgets/app_shell.dart';
 
 class AppRouter {
+  static NoTransitionPage<void> _noTransitionPage(
+    GoRouterState state,
+    Widget child,
+  ) {
+    return NoTransitionPage<void>(key: state.pageKey, child: child);
+  }
+
   static final router = GoRouter(
     initialLocation: AppRoutes.dashboard,
     refreshListenable: GoRouterRefreshStream(
@@ -89,139 +96,172 @@ class AppRouter {
     routes: [
       GoRoute(
         path: AppRoutes.login,
-        builder: (context, state) {
-          return const LoginPage();
+        pageBuilder: (context, state) {
+          return _noTransitionPage(state, const LoginPage());
         },
       ),
       ShellRoute(
-        builder: (context, state, child) {
-          return AppShell(child: child);
+        pageBuilder: (context, state, child) {
+          return _noTransitionPage(
+            state,
+            AppShell(currentPath: state.uri.path, child: child),
+          );
         },
         routes: [
           GoRoute(
             path: AppRoutes.dashboard,
-            builder: (context, state) {
-              return const DashboardPage();
+            pageBuilder: (context, state) {
+              return _noTransitionPage(state, const DashboardPage());
             },
           ),
           GoRoute(
             path: AppRoutes.administrators,
-            builder: (context, state) {
-              return const AdministratorsPage();
+            pageBuilder: (context, state) {
+              return _noTransitionPage(state, const AdministratorsPage());
             },
           ),
           GoRoute(
             path: AppRoutes.administratorDetails,
-            builder: (context, state) {
-              return AdminDetailsPage(
-                administratorId: state.pathParameters['administratorId']!,
+            pageBuilder: (context, state) {
+              return _noTransitionPage(
+                state,
+                AdminDetailsPage(
+                  administratorId: state.pathParameters['administratorId']!,
+                ),
               );
             },
           ),
           GoRoute(
             path: AppRoutes.newCondominium,
-            builder: (context, state) {
-              return NewCondominiumPage(
-                administratorId: state.pathParameters['administratorId']!,
+            pageBuilder: (context, state) {
+              return _noTransitionPage(
+                state,
+                NewCondominiumPage(
+                  administratorId: state.pathParameters['administratorId']!,
+                ),
               );
             },
           ),
           GoRoute(
             path: AppRoutes.condominiums,
-            builder: (context, state) {
-              return const CondominiumsPage();
+            pageBuilder: (context, state) {
+              return _noTransitionPage(state, const CondominiumsPage());
             },
           ),
           GoRoute(
             path: AppRoutes.condominiumDetails,
-            builder: (context, state) {
-              return CondominiumDetailsPage(
-                condominiumId: state.pathParameters['condominiumId']!,
-                administratorId: state.uri.queryParameters['administratorId'],
+            pageBuilder: (context, state) {
+              return _noTransitionPage(
+                state,
+                CondominiumDetailsPage(
+                  condominiumId: state.pathParameters['condominiumId']!,
+                  administratorId: state.uri.queryParameters['administratorId'],
+                ),
               );
             },
           ),
           GoRoute(
             path: AppRoutes.condominiumBlocks,
-            builder: (context, state) {
-              return BlocksPage(
-                condominiumId: state.pathParameters['condominiumId']!,
-                administratorId: state.uri.queryParameters['administratorId'],
+            pageBuilder: (context, state) {
+              return _noTransitionPage(
+                state,
+                BlocksPage(
+                  condominiumId: state.pathParameters['condominiumId']!,
+                  administratorId: state.uri.queryParameters['administratorId'],
+                ),
               );
             },
           ),
           GoRoute(
             path: AppRoutes.newBlock,
-            builder: (context, state) {
-              return NewBlockPage(
-                condominiumId: state.pathParameters['condominiumId']!,
-                administratorId: state.uri.queryParameters['administratorId'],
+            pageBuilder: (context, state) {
+              return _noTransitionPage(
+                state,
+                NewBlockPage(
+                  condominiumId: state.pathParameters['condominiumId']!,
+                  administratorId: state.uri.queryParameters['administratorId'],
+                ),
               );
             },
           ),
           GoRoute(
             path: AppRoutes.blockDetails,
-            builder: (context, state) {
-              return BlockDetailsPage(
-                condominiumId: state.pathParameters['condominiumId']!,
-                blockId: state.pathParameters['blockId']!,
-                administratorId: state.uri.queryParameters['administratorId'],
+            pageBuilder: (context, state) {
+              return _noTransitionPage(
+                state,
+                BlockDetailsPage(
+                  condominiumId: state.pathParameters['condominiumId']!,
+                  blockId: state.pathParameters['blockId']!,
+                  administratorId: state.uri.queryParameters['administratorId'],
+                ),
               );
             },
           ),
           GoRoute(
             path: AppRoutes.condominiumApartments,
-            builder: (context, state) {
-              return ApartmentsPage(
-                condominiumId: state.pathParameters['condominiumId']!,
-                administratorId: state.uri.queryParameters['administratorId'],
+            pageBuilder: (context, state) {
+              return _noTransitionPage(
+                state,
+                ApartmentsPage(
+                  condominiumId: state.pathParameters['condominiumId']!,
+                  administratorId: state.uri.queryParameters['administratorId'],
+                ),
               );
             },
           ),
           GoRoute(
             path: AppRoutes.newApartment,
-            builder: (context, state) {
-              return NewApartmentPage(
-                condominiumId: state.pathParameters['condominiumId']!,
-                administratorId: state.uri.queryParameters['administratorId'],
-                blockId: state.uri.queryParameters['blockId'],
+            pageBuilder: (context, state) {
+              return _noTransitionPage(
+                state,
+                NewApartmentPage(
+                  condominiumId: state.pathParameters['condominiumId']!,
+                  administratorId: state.uri.queryParameters['administratorId'],
+                  blockId: state.uri.queryParameters['blockId'],
+                ),
               );
             },
           ),
           GoRoute(
             path: AppRoutes.condominiumUsers,
-            builder: (context, state) {
-              return CondominiumUsersPage(
-                condominiumId: state.pathParameters['condominiumId']!,
-                administratorId: state.uri.queryParameters['administratorId'],
+            pageBuilder: (context, state) {
+              return _noTransitionPage(
+                state,
+                CondominiumUsersPage(
+                  condominiumId: state.pathParameters['condominiumId']!,
+                  administratorId: state.uri.queryParameters['administratorId'],
+                ),
               );
             },
           ),
           GoRoute(
             path: AppRoutes.newCondominiumUser,
-            builder: (context, state) {
-              return NewCondominiumUserPage(
-                condominiumId: state.pathParameters['condominiumId']!,
-                administratorId: state.uri.queryParameters['administratorId'],
+            pageBuilder: (context, state) {
+              return _noTransitionPage(
+                state,
+                NewCondominiumUserPage(
+                  condominiumId: state.pathParameters['condominiumId']!,
+                  administratorId: state.uri.queryParameters['administratorId'],
+                ),
               );
             },
           ),
           GoRoute(
             path: AppRoutes.accounts,
-            builder: (context, state) {
-              return const AccountsPage();
+            pageBuilder: (context, state) {
+              return _noTransitionPage(state, const AccountsPage());
             },
           ),
           GoRoute(
             path: AppRoutes.readings,
-            builder: (context, state) {
-              return const ReadingsPage();
+            pageBuilder: (context, state) {
+              return _noTransitionPage(state, const ReadingsPage());
             },
           ),
           GoRoute(
             path: AppRoutes.reports,
-            builder: (context, state) {
-              return const ReportsPage();
+            pageBuilder: (context, state) {
+              return _noTransitionPage(state, const ReportsPage());
             },
           ),
         ],

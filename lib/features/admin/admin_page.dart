@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mede_ja_admin/app/routes/app_routes.dart';
 import 'package:mede_ja_admin/features/admin/admin_model.dart';
 import 'package:mede_ja_admin/features/admin/admin_repo.dart';
 
@@ -18,7 +19,6 @@ class _AdministratorsPageState extends State<AdministratorsPage> {
   String _search = '';
 
   bool _isLoading = true;
-  bool _isCreating = false;
 
   @override
   void initState() {
@@ -278,18 +278,11 @@ class _AdministratorsPageState extends State<AdministratorsPage> {
   }
 
   void _openAdministrator(AdministratorModel administrator) {
-    context.go('/administrators/${administrator.id}');
+    context.go(AppRoutes.administratorDetailsPath(administrator.id));
   }
 
   Future<void> _toggleAdministrator(AdministratorModel administrator) async {
-    final updated = AdministratorModel(
-      id: administrator.id,
-      name: administrator.name,
-      email: administrator.email,
-      phone: administrator.phone,
-      active: !administrator.active,
-      createdAt: administrator.createdAt,
-    );
+    final updated = administrator.copyWith(active: !administrator.active);
 
     try {
       await _repository.updateAdministrator(updated);
@@ -314,119 +307,237 @@ class _AdministratorsPageState extends State<AdministratorsPage> {
     }
   }
 
-  void _showCreateAdministratorDialog() {
-    final nameController = TextEditingController();
-    final emailController = TextEditingController();
-
-    showDialog(
+  Future<void> _showCreateAdministratorDialog() async {
+    await showDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Nova administradora'),
-          content: SizedBox(
-            width: 450,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Nome',
-                    hintText: 'Ex.: Administradora ABC',
-                  ),
+        return _CreateAdministratorDialog(
+          onSubmit: ({
+            required String name,
+            required String email,
+            required String phone,
+          }) async {
+            try {
+              debugPrint('🟡 [ADMIN CREATE] Criando administradora...');
+
+              final administrator = AdministratorModel(
+                id: '',
+                name: name,
+                email: email,
+                phone: phone.isEmpty ? null : phone,
+                active: true,
+              );
+
+              final id = await _repository.createAdministrator(administrator);
+
+              debugPrint('🟢 [ADMIN CREATE] Criada com ID: $id');
+
+              if (!mounted) return true;
+
+              await _loadAdministrators();
+
+              if (!mounted) return true;
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Administradora criada com sucesso.'),
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: 'E-mail',
-                    hintText: 'contato@empresa.com',
+              );
+              return true;
+            } catch (_) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Erro ao criar administradora.'),
                   ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: _isCreating
-                  ? null
-                  : () => Navigator.pop(dialogContext),
-              child: const Text('Cancelar'),
-            ),
-            FilledButton(
-              onPressed: _isCreating
-                  ? null
-                  : () async {
-                      final name = nameController.text.trim();
-                      final email = emailController.text.trim();
-
-                      if (name.isEmpty || email.isEmpty) {
-                        return;
-                      }
-
-                      setState(() {
-                        _isCreating = true;
-                      });
-
-                      try {
-                        debugPrint(
-                          '🟡 [ADMIN CREATE] Criando administradora...',
-                        );
-                        debugPrint('🟡 [ADMIN CREATE] Nome: $name');
-                        debugPrint('🟡 [ADMIN CREATE] E-mail: $email');
-
-                        final administrator = AdministratorModel(
-                          id: '',
-                          name: name,
-                          email: email,
-                          active: true,
-                        );
-
-                        final id = await _repository.createAdministrator(
-                          administrator,
-                        );
-
-                        debugPrint('🟢 [ADMIN CREATE] Criada com ID: $id');
-
-                        if (!mounted) return;
-
-                        Navigator.pop(dialogContext);
-
-                        await _loadAdministrators();
-
-                        if (!mounted) return;
-
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Administradora criada com sucesso.'),
-                          ),
-                        );
-                      } catch (e) {
-                        if (!mounted) return;
-
-                        setState(() {
-                          _isCreating = false;
-                        });
-
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Erro ao criar administradora.'),
-                          ),
-                        );
-                      }
-                    },
-              child: _isCreating
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('Criar'),
-            ),
-          ],
+                );
+              }
+              return false;
+            }
+          },
         );
       },
+    );
+  }
+}
+
+class _CreateAdministratorDialog extends StatefulWidget {
+  final Future<bool> Function({
+    required String name,
+    required String email,
+    required String phone,
+  })
+  onSubmit;
+
+  const _CreateAdministratorDialog({required this.onSubmit});
+
+  @override
+  State<_CreateAdministratorDialog> createState() =>
+      _CreateAdministratorDialogState();
+}
+
+class _CreateAdministratorDialogState
+    extends State<_CreateAdministratorDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+
+  bool _isSubmitting = false;
+  bool _isFormValid = false;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _emailController.dispose();
+    _phoneController.dispose();
+    super.dispose();
+  }
+
+  bool _isValidEmail(String email) {
+    return RegExp(
+      r'^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$',
+    ).hasMatch(email);
+  }
+
+  bool _isValidPhone(String phone) {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    return digits.length >= 10 && digits.length <= 13;
+  }
+
+  void _evaluateForm() {
+    final valid =
+        _nameController.text.trim().isNotEmpty &&
+        _isValidEmail(_emailController.text.trim()) &&
+        (_phoneController.text.trim().isEmpty ||
+            _isValidPhone(_phoneController.text.trim()));
+
+    if (valid != _isFormValid) {
+      setState(() {
+        _isFormValid = valid;
+      });
+    }
+  }
+
+  Future<void> _submit() async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    final success = await widget.onSubmit(
+      name: _nameController.text.trim(),
+      email: _emailController.text.trim(),
+      phone: _phoneController.text.trim(),
+    );
+
+    if (!mounted) return;
+
+    if (success) {
+      Navigator.pop(context);
+    } else {
+      setState(() {
+        _isSubmitting = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Nova administradora'),
+      content: SizedBox(
+        width: 460,
+        child: Form(
+          key: _formKey,
+          autovalidateMode: AutovalidateMode.onUserInteraction,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _nameController,
+                enabled: !_isSubmitting,
+                textCapitalization: TextCapitalization.words,
+                onChanged: (_) => _evaluateForm(),
+                decoration: const InputDecoration(
+                  labelText: 'Nome *',
+                  hintText: 'Ex.: Administradora ABC',
+                  prefixIcon: Icon(Icons.business_outlined),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Informe o nome da administradora.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _emailController,
+                enabled: !_isSubmitting,
+                keyboardType: TextInputType.emailAddress,
+                onChanged: (_) => _evaluateForm(),
+                decoration: const InputDecoration(
+                  labelText: 'E-mail *',
+                  hintText: 'contato@empresa.com',
+                  prefixIcon: Icon(Icons.email_outlined),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  final email = value?.trim() ?? '';
+                  if (email.isEmpty) {
+                    return 'Informe o e-mail.';
+                  }
+                  if (!_isValidEmail(email)) {
+                    return 'Informe um e-mail válido.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _phoneController,
+                enabled: !_isSubmitting,
+                keyboardType: TextInputType.phone,
+                onChanged: (_) => _evaluateForm(),
+                decoration: const InputDecoration(
+                  labelText: 'Telefone (opcional)',
+                  hintText: 'Ex.: (11) 99999-9999',
+                  prefixIcon: Icon(Icons.phone_outlined),
+                  border: OutlineInputBorder(),
+                ),
+                validator: (value) {
+                  final phone = value?.trim() ?? '';
+                  if (phone.isNotEmpty && !_isValidPhone(phone)) {
+                    return 'Informe um telefone válido.';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _isSubmitting ? null : () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _isSubmitting || !_isFormValid ? null : _submit,
+          child: _isSubmitting
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Criar'),
+        ),
+      ],
     );
   }
 }
