@@ -43,6 +43,20 @@ class ApartmentRepository {
     );
   }
 
+  Future<List<String>> createApartmentsBatch(
+    String administratorId,
+    String condominiumId,
+    String blockId,
+    List<ApartmentModel> apartments,
+  ) {
+    return _dataSource.createApartmentsBatch(
+      administratorId,
+      condominiumId,
+      blockId,
+      apartments,
+    );
+  }
+
   Future<void> updateApartment(
     String administratorId,
     String condominiumId,

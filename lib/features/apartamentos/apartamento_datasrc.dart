@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mede_ja_admin/features/apartamentos/apartamentos_model.dart';
 
 class ApartmentFirestoreDataSource {
+  static const int _maxBatchSize = 450;
+
   final FirebaseFirestore _firestore;
 
   ApartmentFirestoreDataSource({FirebaseFirestore? firestore})
@@ -70,6 +72,39 @@ class ApartmentFirestoreDataSource {
     ).add({...apartment.toMap(), 'createdAt': FieldValue.serverTimestamp()});
 
     return docRef.id;
+  }
+
+  Future<List<String>> createApartmentsBatch(
+    String administratorId,
+    String condominiumId,
+    String blockId,
+    List<ApartmentModel> apartments,
+  ) async {
+    if (apartments.isEmpty) return const [];
+
+    final collection = _collection(administratorId, condominiumId, blockId);
+    final createdIds = <String>[];
+
+    for (var i = 0; i < apartments.length; i += _maxBatchSize) {
+      final chunkEnd = (i + _maxBatchSize < apartments.length)
+          ? i + _maxBatchSize
+          : apartments.length;
+      final chunk = apartments.sublist(i, chunkEnd);
+      final batch = _firestore.batch();
+
+      for (final apartment in chunk) {
+        final docRef = collection.doc();
+        createdIds.add(docRef.id);
+        batch.set(docRef, {
+          ...apartment.toMap(),
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+    }
+
+    return createdIds;
   }
 
   Future<void> updateApartment(

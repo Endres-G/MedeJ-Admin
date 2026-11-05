@@ -107,6 +107,13 @@ class _FakeBlockRepository implements BlockRepository {
   ) => throw UnimplementedError();
 
   @override
+  Future<List<String>> createBlocksBatch(
+    String administratorId,
+    String condominiumId,
+    List<BlockModel> blocks,
+  ) => throw UnimplementedError();
+
+  @override
   Future<void> deleteBlock(
     String administratorId,
     String condominiumId,
@@ -148,6 +155,14 @@ class _FakeApartmentRepository implements ApartmentRepository {
     String condominiumId,
     String blockId,
     ApartmentModel apartment,
+  ) => throw UnimplementedError();
+
+  @override
+  Future<List<String>> createApartmentsBatch(
+    String administratorId,
+    String condominiumId,
+    String blockId,
+    List<ApartmentModel> apartments,
   ) => throw UnimplementedError();
 
   @override

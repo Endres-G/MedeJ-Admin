@@ -30,6 +30,14 @@ class BlockRepository {
     return _dataSource.createBlock(administratorId, condominiumId, block);
   }
 
+  Future<List<String>> createBlocksBatch(
+    String administratorId,
+    String condominiumId,
+    List<BlockModel> blocks,
+  ) {
+    return _dataSource.createBlocksBatch(administratorId, condominiumId, blocks);
+  }
+
   Future<void> updateBlock(
     String administratorId,
     String condominiumId,

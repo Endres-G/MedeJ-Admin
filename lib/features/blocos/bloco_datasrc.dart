@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:mede_ja_admin/features/blocos/bloco_model.dart';
 
 class BlockFirestoreDataSource {
+  static const int _maxBatchSize = 450;
+
   final FirebaseFirestore _firestore;
 
   BlockFirestoreDataSource({FirebaseFirestore? firestore})
@@ -58,6 +60,38 @@ class BlockFirestoreDataSource {
     ).add({...block.toMap(), 'createdAt': FieldValue.serverTimestamp()});
 
     return docRef.id;
+  }
+
+  Future<List<String>> createBlocksBatch(
+    String administratorId,
+    String condominiumId,
+    List<BlockModel> blocks,
+  ) async {
+    if (blocks.isEmpty) return const [];
+
+    final collection = _collection(administratorId, condominiumId);
+    final createdIds = <String>[];
+
+    for (var i = 0; i < blocks.length; i += _maxBatchSize) {
+      final chunkEnd = (i + _maxBatchSize < blocks.length)
+          ? i + _maxBatchSize
+          : blocks.length;
+      final chunk = blocks.sublist(i, chunkEnd);
+      final batch = _firestore.batch();
+
+      for (final block in chunk) {
+        final docRef = collection.doc();
+        createdIds.add(docRef.id);
+        batch.set(docRef, {
+          ...block.toMap(),
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+    }
+
+    return createdIds;
   }
 
   Future<void> updateBlock(
