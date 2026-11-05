@@ -338,6 +338,11 @@ class _NewCondominiumPageState extends ConsumerState<NewCondominiumPage> {
     final colorScheme = Theme.of(context).colorScheme;
     final administrator = state.administrator;
 
+    final adminBackLabel =
+        administrator != null && administrator.name.trim().isNotEmpty
+        ? 'Voltar para ${administrator.name}'
+        : 'Voltar para Administradora';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -348,7 +353,7 @@ class _NewCondominiumPageState extends ConsumerState<NewCondominiumPage> {
                   AppRoutes.administratorDetailsPath(widget.administratorId),
                 ),
           icon: const Icon(Icons.arrow_back),
-          label: const Text('Administradora'),
+          label: Text(adminBackLabel),
         ),
         const SizedBox(height: 16),
         Text(

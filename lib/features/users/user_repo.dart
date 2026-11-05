@@ -30,6 +30,20 @@ class UserRepository {
     return _dataSource.createUser(administratorId, condominiumId, user);
   }
 
+  Future<void> saveUserWithId(
+    String administratorId,
+    String condominiumId,
+    String userId,
+    UserModel user,
+  ) {
+    return _dataSource.saveUserWithId(
+      administratorId,
+      condominiumId,
+      userId,
+      user,
+    );
+  }
+
   Future<void> updateUser(
     String administratorId,
     String condominiumId,

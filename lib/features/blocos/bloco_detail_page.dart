@@ -88,38 +88,48 @@ class _BlockDetailsPageState extends ConsumerState<BlockDetailsPage> {
 
   Widget _buildTopBar(BuildContext context, CondominiumDetailsState state) {
     final adminId = _effectiveAdminId(state);
+    final condoName = state.condominium?.name.trim() ?? '';
+    final backToCondoLabel = condoName.isNotEmpty
+        ? 'Voltar para $condoName'
+        : 'Voltar para Condomínio';
+    final allBlocksLabel = condoName.isNotEmpty
+        ? 'Blocos de $condoName'
+        : 'Todos os blocos';
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Wrap(
-          spacing: 8,
-          children: [
-            TextButton.icon(
-              onPressed: () {
-                context.go(
-                  AppRoutes.condominiumDetailsPath(
-                    widget.condominiumId,
-                    administratorId: adminId,
-                  ),
-                );
-              },
-              icon: const Icon(Icons.arrow_back),
-              label: const Text('Condomínio'),
-            ),
-            TextButton.icon(
-              onPressed: () {
-                context.go(
-                  AppRoutes.condominiumBlocksPath(
-                    widget.condominiumId,
-                    administratorId: adminId,
-                  ),
-                );
-              },
-              icon: const Icon(Icons.domain_outlined),
-              label: const Text('Todos os blocos'),
-            ),
-          ],
+        Flexible(
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              TextButton.icon(
+                onPressed: () {
+                  context.go(
+                    AppRoutes.condominiumDetailsPath(
+                      widget.condominiumId,
+                      administratorId: adminId,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.arrow_back),
+                label: Text(backToCondoLabel),
+              ),
+              TextButton.icon(
+                onPressed: () {
+                  context.go(
+                    AppRoutes.condominiumBlocksPath(
+                      widget.condominiumId,
+                      administratorId: adminId,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.domain_outlined),
+                label: Text(allBlocksLabel),
+              ),
+            ],
+          ),
         ),
         IconButton(
           tooltip: 'Atualizar',

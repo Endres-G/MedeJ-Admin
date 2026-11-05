@@ -60,6 +60,18 @@ class UserFirestoreDataSource {
     return docRef.id;
   }
 
+  Future<void> saveUserWithId(
+    String administratorId,
+    String condominiumId,
+    String userId,
+    UserModel user,
+  ) async {
+    await _collection(administratorId, condominiumId).doc(userId).set({
+      ...user.toMap(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<void> updateUser(
     String administratorId,
     String condominiumId,

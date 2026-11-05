@@ -1,4 +1,3 @@
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/legacy.dart';
 import 'package:mede_ja_admin/features/admin/admin_details_controller.dart';
@@ -12,6 +11,7 @@ import 'package:mede_ja_admin/features/condominos/condominio_model.dart';
 import 'package:mede_ja_admin/features/condominos/condominio_repo.dart';
 import 'package:mede_ja_admin/features/dashboard/dashboard_controller.dart';
 import 'package:mede_ja_admin/features/users/user_model.dart';
+import 'package:mede_ja_admin/features/users/user_provisioning_datasrc.dart';
 import 'package:mede_ja_admin/features/users/user_repo.dart';
 
 /// Compara strings de forma natural (ex.: "Bloco 2" < "Bloco 10", "102" < "1001").
@@ -166,6 +166,7 @@ final condominiumDetailsControllerProvider = StateNotifierProvider.autoDispose
           blockRepository: ref.watch(blockRepositoryProvider),
           apartmentRepository: ref.watch(apartmentRepositoryProvider),
           userRepository: ref.watch(userRepositoryProvider),
+          userAuthProvisioner: ref.watch(userAuthProvisionerProvider),
           onParentCachesInvalidated: (adminId) {
             if (adminId.isNotEmpty) {
               ref.invalidate(adminDetailsControllerProvider(adminId));
@@ -273,6 +274,9 @@ class CondominiumDetailsState {
 
   int get inactiveUsers => totalUsers - activeUsers;
 
+  int get pendingPasswordChangeUsers =>
+      users.where((u) => u.mustChangePassword).length;
+
   List<ApartmentWithBlockItem> get allApartments {
     final items = <ApartmentWithBlockItem>[];
     for (final blockItem in blocks) {
@@ -363,6 +367,7 @@ class CondominiumDetailsController
   final BlockRepository _blockRepository;
   final ApartmentRepository _apartmentRepository;
   final UserRepository _userRepository;
+  final UserAuthProvisioner _userAuthProvisioner;
   final void Function(String administratorId)? _onParentCachesInvalidated;
 
   CondominiumDetailsController({
@@ -372,12 +377,15 @@ class CondominiumDetailsController
     required BlockRepository blockRepository,
     required ApartmentRepository apartmentRepository,
     required UserRepository userRepository,
+    UserAuthProvisioner? userAuthProvisioner,
     void Function(String administratorId)? onParentCachesInvalidated,
   }) : _adminRepository = adminRepository,
        _condominiumRepository = condominiumRepository,
        _blockRepository = blockRepository,
        _apartmentRepository = apartmentRepository,
        _userRepository = userRepository,
+       _userAuthProvisioner =
+           userAuthProvisioner ?? FirebaseUserAuthProvisioner(),
        _onParentCachesInvalidated = onParentCachesInvalidated,
        super(
          CondominiumDetailsState(
@@ -1084,24 +1092,236 @@ class CondominiumDetailsController
     }
   }
 
-  String _formatError(Object error) {
-    if (error is FirebaseException) {
-      switch (error.code) {
-        case 'permission-denied':
-          return 'Permissão negada no Firestore (${error.code}). Verifique as regras de segurança.';
-        case 'unavailable':
-          return 'Serviço do Firebase indisponível no momento. Verifique sua conexão e tente novamente.';
-        case 'not-found':
-          return 'Registro não encontrado no Firestore.';
-        default:
-          return 'Erro no Firebase (${error.code}): ${error.message ?? 'falha inesperada.'}';
-      }
+  bool hasUserWithEmail(String email, {String? ignoreUserId}) {
+    final normalized = email.trim().toLowerCase();
+    if (normalized.isEmpty) return false;
+
+    return state.users.any(
+      (user) =>
+          user.id != ignoreUserId &&
+          user.email.trim().toLowerCase() == normalized,
+    );
+  }
+
+  Future<ProvisionedUserCredentials?> provisionCondominiumUser({
+    required String name,
+    required String email,
+    required String temporaryPassword,
+    String? apartmentId,
+    bool active = true,
+  }) async {
+    final adminId = state.resolvedAdministratorId;
+    if (adminId == null || adminId.isEmpty) {
+      state = state.copyWith(
+        actionError: 'Administradora do condomínio não identificada.',
+      );
+      return null;
     }
 
-    final raw = error.toString();
-    if (raw.startsWith('Exception: ')) {
-      return raw.substring('Exception: '.length);
+    final trimmedName = name.trim();
+    if (trimmedName.length < 3) {
+      state = state.copyWith(
+        actionError: 'Informe o nome completo (mínimo de 3 caracteres).',
+      );
+      return null;
     }
-    return raw;
+
+    final normalizedEmail = email.trim().toLowerCase();
+    final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (!emailRegex.hasMatch(normalizedEmail)) {
+      state = state.copyWith(actionError: 'Informe um e-mail válido.');
+      return null;
+    }
+
+    if (hasUserWithEmail(normalizedEmail)) {
+      state = state.copyWith(
+        actionError:
+            'Já existe uma conta cadastrada com este e-mail neste condomínio.',
+      );
+      return null;
+    }
+
+    final passwordValidation = validateTemporaryPassword(temporaryPassword);
+    if (passwordValidation != null) {
+      state = state.copyWith(actionError: passwordValidation);
+      return null;
+    }
+
+    final cleanApartmentId =
+        (apartmentId == null || apartmentId.trim().isEmpty)
+        ? null
+        : apartmentId.trim();
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      final persistedUser = await _userAuthProvisioner.provisionAndPersist<UserModel>(
+        name: trimmedName,
+        email: normalizedEmail,
+        temporaryPassword: temporaryPassword,
+        persistUser: (authUid) async {
+          final modelToSave = UserModel(
+            id: authUid,
+            name: trimmedName,
+            email: normalizedEmail,
+            apartmentId: cleanApartmentId,
+            active: active,
+            mustChangePassword: true,
+          );
+          await _userRepository.saveUserWithId(
+            adminId,
+            scope.condominiumId,
+            authUid,
+            modelToSave,
+          );
+          return modelToSave.copyWith(createdAt: DateTime.now());
+        },
+      );
+
+      final updatedUsers = [...state.users, persistedUser]
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+      _onParentCachesInvalidated?.call(adminId);
+
+      final credentials = ProvisionedUserCredentials(
+        user: persistedUser,
+        temporaryPassword: temporaryPassword,
+        condominiumId: scope.condominiumId,
+        condominiumName: state.condominium?.name ?? 'Condomínio',
+        administratorName: state.administrator?.name,
+      );
+
+      if (!mounted) return credentials;
+
+      state = state.copyWith(
+        isSaving: false,
+        users: updatedUsers,
+        clearActionError: true,
+      );
+      return credentials;
+    } catch (e) {
+      if (!mounted) return null;
+
+      state = state.copyWith(isSaving: false, actionError: _formatError(e));
+      return null;
+    }
+  }
+
+  Future<bool> updateCondominiumUser({
+    required UserModel user,
+    required String name,
+    String? apartmentId,
+    bool clearApartmentId = false,
+  }) async {
+    final adminId = state.resolvedAdministratorId;
+    if (adminId == null || adminId.isEmpty) return false;
+
+    final trimmedName = name.trim();
+    if (trimmedName.length < 3) {
+      state = state.copyWith(
+        actionError: 'Informe um nome válido (mínimo de 3 caracteres).',
+      );
+      return false;
+    }
+
+    final cleanApartmentId =
+        (apartmentId == null || apartmentId.trim().isEmpty)
+        ? null
+        : apartmentId.trim();
+
+    final updatedUser = user.copyWith(
+      name: trimmedName,
+      apartmentId: cleanApartmentId,
+      clearApartmentId: clearApartmentId || cleanApartmentId == null,
+    );
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      await _userRepository.updateUser(
+        adminId,
+        scope.condominiumId,
+        updatedUser,
+      );
+
+      final updatedUsers = state.users
+          .map((item) => item.id == user.id ? updatedUser : item)
+          .toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+      if (!mounted) return true;
+
+      state = state.copyWith(
+        isSaving: false,
+        users: updatedUsers,
+        clearActionError: true,
+      );
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+
+      state = state.copyWith(isSaving: false, actionError: _formatError(e));
+      return false;
+    }
+  }
+
+  Future<bool> toggleCondominiumUserActive(UserModel user) async {
+    final adminId = state.resolvedAdministratorId;
+    if (adminId == null || adminId.isEmpty) return false;
+
+    final updatedUser = user.copyWith(active: !user.active);
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      await _userRepository.updateUser(
+        adminId,
+        scope.condominiumId,
+        updatedUser,
+      );
+
+      final updatedUsers = state.users
+          .map((item) => item.id == user.id ? updatedUser : item)
+          .toList();
+
+      _onParentCachesInvalidated?.call(adminId);
+
+      if (!mounted) return true;
+
+      state = state.copyWith(
+        isSaving: false,
+        users: updatedUsers,
+        clearActionError: true,
+      );
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+
+      state = state.copyWith(isSaving: false, actionError: _formatError(e));
+      return false;
+    }
+  }
+
+  Future<bool> sendUserPasswordReset(String email) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail.isEmpty) return false;
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      await _userAuthProvisioner.sendPasswordResetEmail(normalizedEmail);
+      if (!mounted) return true;
+
+      state = state.copyWith(isSaving: false, clearActionError: true);
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+
+      state = state.copyWith(isSaving: false, actionError: _formatError(e));
+      return false;
+    }
+  }
+
+  String _formatError(Object error) {
+    return formatAuthAndFirestoreError(error);
   }
 }

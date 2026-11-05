@@ -78,6 +78,10 @@ class _BlocksPageState extends ConsumerState<BlocksPage> {
     bool isSmall,
   ) {
     final adminId = _effectiveAdminId(state);
+    final condoName = state.condominium?.name.trim() ?? '';
+    final backLabel = condoName.isNotEmpty
+        ? 'Voltar para $condoName'
+        : 'Voltar para Condomínio';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -85,17 +89,19 @@ class _BlocksPageState extends ConsumerState<BlocksPage> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            TextButton.icon(
-              onPressed: () {
-                context.go(
-                  AppRoutes.condominiumDetailsPath(
-                    widget.condominiumId,
-                    administratorId: adminId,
-                  ),
-                );
-              },
-              icon: const Icon(Icons.arrow_back),
-              label: const Text('Condomínio'),
+            Flexible(
+              child: TextButton.icon(
+                onPressed: () {
+                  context.go(
+                    AppRoutes.condominiumDetailsPath(
+                      widget.condominiumId,
+                      administratorId: adminId,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.arrow_back),
+                label: Text(backLabel, overflow: TextOverflow.ellipsis),
+              ),
             ),
             IconButton(
               tooltip: 'Atualizar blocos',

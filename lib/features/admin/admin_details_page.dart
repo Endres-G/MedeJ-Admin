@@ -79,7 +79,7 @@ class _AdminDetailsPageState extends ConsumerState<AdminDetailsPage> {
         TextButton.icon(
           onPressed: () => context.go(AppRoutes.administrators),
           icon: const Icon(Icons.arrow_back),
-          label: const Text('Administradoras'),
+          label: const Text('Voltar para Administradoras'),
         ),
         IconButton(
           tooltip: 'Atualizar dados',

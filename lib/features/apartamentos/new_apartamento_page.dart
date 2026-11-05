@@ -325,11 +325,25 @@ class _NewApartmentPageState extends ConsumerState<NewApartmentPage> {
     CondominiumDetailsState state,
     String? adminId,
   ) {
+    final condoName = state.condominium?.name.trim() ?? '';
+    final originBlock =
+        widget.blockId != null && widget.blockId!.trim().isNotEmpty
+        ? state.findBlock(widget.blockId!)?.block
+        : null;
+
+    final backToCondoLabel = condoName.isNotEmpty
+        ? 'Voltar para $condoName'
+        : 'Voltar para Condomínio';
+    final apartmentsListLabel = condoName.isNotEmpty
+        ? 'Apartamentos de $condoName'
+        : 'Lista de apartamentos';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Wrap(
           spacing: 8,
+          runSpacing: 4,
           children: [
             TextButton.icon(
               onPressed: state.isSaving
@@ -341,8 +355,22 @@ class _NewApartmentPageState extends ConsumerState<NewApartmentPage> {
                       ),
                     ),
               icon: const Icon(Icons.arrow_back),
-              label: const Text('Condomínio'),
+              label: Text(backToCondoLabel),
             ),
+            if (originBlock != null)
+              TextButton.icon(
+                onPressed: state.isSaving
+                    ? null
+                    : () => context.go(
+                        AppRoutes.blockDetailsPath(
+                          widget.condominiumId,
+                          originBlock.id,
+                          administratorId: adminId,
+                        ),
+                      ),
+                icon: const Icon(Icons.domain_outlined),
+                label: Text('Bloco: ${originBlock.name}'),
+              ),
             TextButton.icon(
               onPressed: state.isSaving
                   ? null
@@ -353,7 +381,7 @@ class _NewApartmentPageState extends ConsumerState<NewApartmentPage> {
                       ),
                     ),
               icon: const Icon(Icons.home_work_outlined),
-              label: const Text('Lista de apartamentos'),
+              label: Text(apartmentsListLabel),
             ),
           ],
         ),

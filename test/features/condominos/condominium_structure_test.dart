@@ -249,6 +249,16 @@ class _InMemoryUserRepo implements UserRepository {
   ) => throw UnimplementedError();
 
   @override
+  Future<void> saveUserWithId(
+    String administratorId,
+    String condominiumId,
+    String userId,
+    UserModel user,
+  ) async {
+    users.add(user.copyWith(id: userId));
+  }
+
+  @override
   Future<void> deleteUser(
     String administratorId,
     String condominiumId,
@@ -435,6 +445,7 @@ void main() {
 
         await tester.pumpAndSettle();
 
+        expect(find.text('Voltar para Gestão Prime'), findsOneWidget);
         expect(find.text('Residencial Aurora'), findsOneWidget);
         expect(
           find.text('Av. Central, 500 - Centro, Curitiba/PR'),
@@ -505,6 +516,11 @@ void main() {
         // Clica em Criar primeiro bloco
         await tester.tap(find.text('Criar primeiro bloco'));
         await tester.pumpAndSettle();
+
+        expect(
+          find.text('Voltar para Residencial Novo Horizonte'),
+          findsOneWidget,
+        );
 
         // Preenche o nome do bloco e avança direto para apartamentos
         await tester.enterText(

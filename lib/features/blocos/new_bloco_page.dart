@@ -220,6 +220,11 @@ class _NewBlockPageState extends ConsumerState<NewBlockPage> {
     CondominiumDetailsState state,
     String? adminId,
   ) {
+    final condoName = state.condominium?.name.trim() ?? '';
+    final backLabel = condoName.isNotEmpty
+        ? 'Voltar para $condoName'
+        : 'Voltar para Condomínio';
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -233,7 +238,7 @@ class _NewBlockPageState extends ConsumerState<NewBlockPage> {
                   ),
                 ),
           icon: const Icon(Icons.arrow_back),
-          label: const Text('Condomínio'),
+          label: Text(backLabel),
         ),
         const SizedBox(height: 16),
         Text(

@@ -83,20 +83,28 @@ class _CondominiumDetailsPageState
 
   Widget _buildTopBar(BuildContext context, CondominiumDetailsState state) {
     final adminId = _effectiveAdminId(state);
+    final adminName = state.administrator?.name.trim() ?? '';
+    final backLabel = adminId != null
+        ? (adminName.isNotEmpty
+              ? 'Voltar para $adminName'
+              : 'Voltar para Administradora')
+        : 'Voltar para Condomínios';
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        TextButton.icon(
-          onPressed: () {
-            if (adminId != null) {
-              context.go(AppRoutes.administratorDetailsPath(adminId));
-            } else {
-              context.go(AppRoutes.condominiums);
-            }
-          },
-          icon: const Icon(Icons.arrow_back),
-          label: Text(adminId != null ? 'Administradora' : 'Condomínios'),
+        Flexible(
+          child: TextButton.icon(
+            onPressed: () {
+              if (adminId != null) {
+                context.go(AppRoutes.administratorDetailsPath(adminId));
+              } else {
+                context.go(AppRoutes.condominiums);
+              }
+            },
+            icon: const Icon(Icons.arrow_back),
+            label: Text(backLabel, overflow: TextOverflow.ellipsis),
+          ),
         ),
         IconButton(
           tooltip: 'Atualizar dados',
@@ -894,6 +902,10 @@ class _CondominiumDetailsPageState
       widget.condominiumId,
       administratorId: adminId,
     );
+    final newUserRoute = AppRoutes.newCondominiumUserPath(
+      widget.condominiumId,
+      administratorId: adminId,
+    );
 
     final apartmentsById = <String, ApartmentWithBlockItem>{
       for (final item in state.allApartments) item.apartment.id: item,
@@ -937,6 +949,12 @@ class _CondominiumDetailsPageState
                     const Text(
                       'Nenhuma conta vinculada a este condomínio.',
                       textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.tonalIcon(
+                      onPressed: () => context.go(newUserRoute),
+                      icon: const Icon(Icons.person_add_outlined, size: 18),
+                      label: const Text('Criar conta do condomínio'),
                     ),
                   ],
                 ),
@@ -1185,11 +1203,23 @@ class _UserTile extends StatelessWidget {
             ),
         ],
       ),
-      trailing: Chip(
-        label: Text(user.active ? 'Ativo' : 'Inativo'),
-        backgroundColor: user.active
-            ? colorScheme.secondaryContainer
-            : colorScheme.surfaceContainerHighest,
+      trailing: Wrap(
+        spacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          if (user.mustChangePassword)
+            Chip(
+              label: const Text('1º acesso pendente'),
+              visualDensity: VisualDensity.compact,
+              backgroundColor: colorScheme.tertiaryContainer,
+            ),
+          Chip(
+            label: Text(user.active ? 'Ativo' : 'Inativo'),
+            backgroundColor: user.active
+                ? colorScheme.secondaryContainer
+                : colorScheme.surfaceContainerHighest,
+          ),
+        ],
       ),
     );
   }

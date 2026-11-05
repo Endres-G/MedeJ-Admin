@@ -212,6 +212,14 @@ class _FakeUserRepo implements UserRepository {
   ) => throw UnimplementedError();
 
   @override
+  Future<void> saveUserWithId(
+    String administratorId,
+    String condominiumId,
+    String userId,
+    UserModel user,
+  ) => throw UnimplementedError();
+
+  @override
   Future<void> updateUser(
     String administratorId,
     String condominiumId,

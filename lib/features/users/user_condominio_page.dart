@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mede_ja_admin/app/routes/app_routes.dart';
+import 'package:mede_ja_admin/features/condominos/condominium_details_controller.dart';
+import 'package:mede_ja_admin/features/condominos/structure_dialogs.dart';
+import 'package:mede_ja_admin/features/contas/accounts_controller.dart';
+import 'package:mede_ja_admin/features/users/user_credentials_dialog.dart';
+import 'package:mede_ja_admin/features/users/user_model.dart';
 
-class CondominiumUsersPage extends StatefulWidget {
+class CondominiumUsersPage extends ConsumerStatefulWidget {
   final String condominiumId;
   final String? administratorId;
 
@@ -13,67 +20,120 @@ class CondominiumUsersPage extends StatefulWidget {
   });
 
   @override
-  State<CondominiumUsersPage> createState() => _CondominiumUsersPageState();
+  ConsumerState<CondominiumUsersPage> createState() =>
+      _CondominiumUsersPageState();
 }
 
-class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
+class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
+  final _searchController = TextEditingController();
   String _search = '';
   String _statusFilter = 'Todos';
 
-  final List<_CondominiumUser> _users = const [
-    _CondominiumUser(
-      name: 'João Silva',
-      email: 'joao@email.com',
-      status: 'Ativo',
-    ),
-    _CondominiumUser(
-      name: 'Maria Souza',
-      email: 'maria@email.com',
-      status: 'Ativo',
-    ),
-    _CondominiumUser(
-      name: 'Carlos Oliveira',
-      email: 'carlos@email.com',
-      status: 'Inativo',
-    ),
-    _CondominiumUser(
-      name: 'Ana Santos',
-      email: 'ana@email.com',
-      status: 'Ativo',
-    ),
-  ];
+  CondominiumScope get _scope => CondominiumScope(
+    condominiumId: widget.condominiumId,
+    administratorId: widget.administratorId,
+  );
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final filteredUsers = _users.where((user) {
-      final normalizedSearch = _search.toLowerCase();
-
-      final matchesSearch =
-          user.name.toLowerCase().contains(normalizedSearch) ||
-          user.email.toLowerCase().contains(normalizedSearch);
-
-      final matchesStatus =
-          _statusFilter == 'Todos' || user.status == _statusFilter;
-
-      return matchesSearch && matchesStatus;
-    }).toList();
+    final condoState = ref.watch(condominiumDetailsControllerProvider(_scope));
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final isSmall = constraints.maxWidth < 700;
+
+        if (condoState.isLoading) {
+          return const Center(
+            child: Padding(
+              padding: EdgeInsets.all(48),
+              child: CircularProgressIndicator(),
+            ),
+          );
+        }
+
+        if (condoState.error != null && condoState.condominium == null) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 48,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(condoState.error!, textAlign: TextAlign.center),
+                        const SizedBox(height: 20),
+                        FilledButton.icon(
+                          onPressed: () => ref
+                              .read(
+                                condominiumDetailsControllerProvider(
+                                  _scope,
+                                ).notifier,
+                              )
+                              .load(),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Tentar novamente'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        final normalizedSearch = _search.trim().toLowerCase();
+        final filteredUsers = condoState.users.where((user) {
+          final matchesSearch =
+              normalizedSearch.isEmpty ||
+              user.name.toLowerCase().contains(normalizedSearch) ||
+              user.email.toLowerCase().contains(normalizedSearch);
+
+          final matchesStatus = switch (_statusFilter) {
+            'Ativo' => user.active,
+            'Inativo' => !user.active,
+            'PrimeiroAcesso' => user.mustChangePassword,
+            _ => true,
+          };
+
+          return matchesSearch && matchesStatus;
+        }).toList();
 
         return SingleChildScrollView(
           padding: EdgeInsets.all(isSmall ? 16 : 32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeader(context, isSmall),
-              const SizedBox(height: 32),
-              _buildSummary(context),
-              const SizedBox(height: 32),
-              _buildFilters(context, isSmall),
-              const SizedBox(height: 16),
-              _buildUsers(context, filteredUsers),
+              _buildHeader(context, condoState, isSmall),
+              const SizedBox(height: 28),
+              _buildSummary(context, condoState),
+              if (condoState.users.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                _buildOperationalBanner(context, condoState),
+              ],
+              const SizedBox(height: 24),
+              if (condoState.users.isEmpty)
+                _buildEmptyCondominiumAccounts(context, condoState)
+              else ...[
+                _buildFilters(context, isSmall),
+                const SizedBox(height: 16),
+                _buildUsersList(context, condoState, filteredUsers),
+              ],
             ],
           ),
         );
@@ -81,10 +141,21 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
     );
   }
 
-  Widget _buildHeader(BuildContext context, bool isSmall) {
+  Widget _buildHeader(
+    BuildContext context,
+    CondominiumDetailsState condoState,
+    bool isSmall,
+  ) {
+    final effectiveAdminId =
+        condoState.resolvedAdministratorId ?? widget.administratorId;
+    final condoName = condoState.condominium?.name.trim() ?? '';
+    final backLabel = condoName.isNotEmpty
+        ? 'Voltar para $condoName'
+        : 'Voltar para Condomínio';
+
     final newUserRoute = AppRoutes.newCondominiumUserPath(
       widget.condominiumId,
-      administratorId: widget.administratorId,
+      administratorId: effectiveAdminId,
     );
 
     return Column(
@@ -95,12 +166,12 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
             context.go(
               AppRoutes.condominiumDetailsPath(
                 widget.condominiumId,
-                administratorId: widget.administratorId,
+                administratorId: effectiveAdminId,
               ),
             );
           },
           icon: const Icon(Icons.arrow_back),
-          label: const Text('Condomínio'),
+          label: Text(backLabel),
         ),
         const SizedBox(height: 20),
         Row(
@@ -116,20 +187,35 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Residencial Jardim',
-                    style: Theme.of(context).textTheme.bodyLarge,
-                  ),
+                  if (condoName.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      condoName,
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  ],
                 ],
               ),
             ),
-            if (!isSmall)
+            IconButton(
+              tooltip: 'Atualizar contas',
+              onPressed: condoState.isSaving
+                  ? null
+                  : () => ref
+                        .read(
+                          condominiumDetailsControllerProvider(_scope).notifier,
+                        )
+                        .load(),
+              icon: const Icon(Icons.refresh),
+            ),
+            if (!isSmall) ...[
+              const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed: () => context.go(newUserRoute),
                 icon: const Icon(Icons.person_add_outlined),
                 label: const Text('Nova conta'),
               ),
+            ],
           ],
         ),
         if (isSmall) ...[
@@ -147,11 +233,13 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
     );
   }
 
-  Widget _buildSummary(BuildContext context) {
+  Widget _buildSummary(
+    BuildContext context,
+    CondominiumDetailsState condoState,
+  ) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        int columns;
-
+        final int columns;
         if (constraints.maxWidth >= 1000) {
           columns = 3;
         } else if (constraints.maxWidth >= 650) {
@@ -161,7 +249,6 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
         }
 
         const spacing = 16.0;
-
         final width =
             (constraints.maxWidth - ((columns - 1) * spacing)) / columns;
 
@@ -171,26 +258,31 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
           children: [
             SizedBox(
               width: width,
-              child: const _SummaryCard(
-                title: 'Total',
-                value: '8',
+              child: _SummaryCard(
+                title: 'Total de contas',
+                value: '${condoState.totalUsers}',
+                subtitle: condoState.totalUsers == 1
+                    ? 'Padrão de 1 conta configurada'
+                    : '${condoState.inactiveUsers} inativa(s)',
                 icon: Icons.people_outline,
               ),
             ),
             SizedBox(
               width: width,
-              child: const _SummaryCard(
-                title: 'Ativas',
-                value: '7',
-                icon: Icons.person_outline,
+              child: _SummaryCard(
+                title: 'Contas ativas',
+                value: '${condoState.activeUsers}',
+                subtitle: 'Com acesso habilitado ao app',
+                icon: Icons.verified_user_outlined,
               ),
             ),
             SizedBox(
               width: width,
-              child: const _SummaryCard(
-                title: 'Inativas',
-                value: '1',
-                icon: Icons.person_off_outlined,
+              child: _SummaryCard(
+                title: '1º acesso pendente',
+                value: '${condoState.pendingPasswordChangeUsers}',
+                subtitle: 'Aguardando troca da senha temporária',
+                icon: Icons.password_outlined,
               ),
             ),
           ],
@@ -199,13 +291,118 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
     );
   }
 
+  Widget _buildOperationalBanner(
+    BuildContext context,
+    CondominiumDetailsState condoState,
+  ) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final hasSingle = condoState.totalUsers == 1;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: hasSingle
+            ? colorScheme.secondaryContainer.withValues(alpha: 0.45)
+            : colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            hasSingle ? Icons.check_circle_outline : Icons.group_outlined,
+            size: 20,
+            color: hasSingle
+                ? colorScheme.primary
+                : colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              hasSingle
+                  ? '1 conta operacional vinculada (configuração padrão recomendada por condomínio). Você ainda pode adicionar outras contas se necessário.'
+                  : 'Este condomínio possui ${condoState.totalUsers} contas vinculadas. O comum é 1 conta por condomínio, mantendo suporte a múltiplos operadores.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyCondominiumAccounts(
+    BuildContext context,
+    CondominiumDetailsState condoState,
+  ) {
+    final effectiveAdminId =
+        condoState.resolvedAdministratorId ?? widget.administratorId;
+    final newUserRoute = AppRoutes.newCondominiumUserPath(
+      widget.condominiumId,
+      administratorId: effectiveAdminId,
+    );
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 460),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.person_add_alt_1_outlined,
+                  size: 52,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Nenhuma conta vinculada a este condomínio',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Crie a conta operacional do condomínio com uma senha temporária segura para o primeiro acesso no aplicativo MedeJá.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 24),
+                FilledButton.icon(
+                  onPressed: () => context.go(newUserRoute),
+                  icon: const Icon(Icons.person_add_outlined),
+                  label: const Text('Criar conta do condomínio'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildFilters(BuildContext context, bool isSmall) {
     final searchField = TextField(
-      decoration: const InputDecoration(
-        labelText: 'Buscar usuário',
+      controller: _searchController,
+      decoration: InputDecoration(
+        labelText: 'Buscar conta',
         hintText: 'Nome ou e-mail',
-        prefixIcon: Icon(Icons.search),
-        border: OutlineInputBorder(),
+        prefixIcon: const Icon(Icons.search),
+        border: const OutlineInputBorder(),
+        suffixIcon: _search.isNotEmpty
+            ? IconButton(
+                tooltip: 'Limpar busca',
+                onPressed: () {
+                  setState(() {
+                    _searchController.clear();
+                    _search = '';
+                  });
+                },
+                icon: const Icon(Icons.clear),
+              )
+            : null,
       ),
       onChanged: (value) {
         setState(() {
@@ -215,6 +412,7 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
     );
 
     final statusField = DropdownButtonFormField<String>(
+      key: ValueKey(_statusFilter),
       initialValue: _statusFilter,
       decoration: const InputDecoration(
         labelText: 'Status',
@@ -222,12 +420,15 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
       ),
       items: const [
         DropdownMenuItem(value: 'Todos', child: Text('Todos')),
-        DropdownMenuItem(value: 'Ativo', child: Text('Ativos')),
-        DropdownMenuItem(value: 'Inativo', child: Text('Inativos')),
+        DropdownMenuItem(value: 'Ativo', child: Text('Ativas')),
+        DropdownMenuItem(value: 'Inativo', child: Text('Inativas')),
+        DropdownMenuItem(
+          value: 'PrimeiroAcesso',
+          child: Text('1º acesso pendente'),
+        ),
       ],
       onChanged: (value) {
         if (value == null) return;
-
         setState(() {
           _statusFilter = value;
         });
@@ -244,26 +445,49 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
       children: [
         Expanded(child: searchField),
         const SizedBox(width: 16),
-        SizedBox(width: 220, child: statusField),
+        SizedBox(width: 240, child: statusField),
       ],
     );
   }
 
-  Widget _buildUsers(BuildContext context, List<_CondominiumUser> users) {
+  Widget _buildUsersList(
+    BuildContext context,
+    CondominiumDetailsState condoState,
+    List<UserModel> users,
+  ) {
+    final apartmentsById = <String, ApartmentWithBlockItem>{
+      for (final item in condoState.allApartments) item.apartment.id: item,
+    };
+
     return Card(
       clipBehavior: Clip.antiAlias,
       child: users.isEmpty
           ? const Padding(
               padding: EdgeInsets.all(32),
-              child: Center(child: Text('Nenhum usuário encontrado.')),
+              child: Center(
+                child: Text(
+                  'Nenhuma conta encontrada para os filtros selecionados.',
+                ),
+              ),
             )
           : Column(
               children: List.generate(users.length, (index) {
                 final user = users[index];
+                final linkedApartment = user.apartmentId != null
+                    ? apartmentsById[user.apartmentId!]
+                    : null;
 
                 return Column(
                   children: [
-                    _UserTile(user: user, onOpen: () {}),
+                    _CondominiumUserTile(
+                      user: user,
+                      linkedApartment: linkedApartment,
+                      disabled: condoState.isSaving,
+                      onCopyEmail: () => _copyEmail(user.email),
+                      onEdit: () => _openEditUser(condoState, user),
+                      onSendPasswordReset: () => _handlePasswordReset(user),
+                      onToggleActive: () => _handleToggleUser(user),
+                    ),
                     if (index < users.length - 1) const Divider(height: 1),
                   ],
                 );
@@ -271,77 +495,343 @@ class _CondominiumUsersPageState extends State<CondominiumUsersPage> {
             ),
     );
   }
+
+  Future<void> _copyEmail(String email) async {
+    await Clipboard.setData(ClipboardData(text: email));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('E-mail "$email" copiado.')),
+    );
+  }
+
+  Future<void> _openEditUser(
+    CondominiumDetailsState condoState,
+    UserModel user,
+  ) async {
+    await showEditUserDialog(
+      context: context,
+      user: user,
+      availableApartments: condoState.allApartments,
+      onSubmit:
+          ({
+            required String name,
+            String? apartmentId,
+            bool clearApartmentId = false,
+          }) async {
+            final controller = ref.read(
+              condominiumDetailsControllerProvider(_scope).notifier,
+            );
+            final ok = await controller.updateCondominiumUser(
+              user: user,
+              name: name,
+              apartmentId: apartmentId,
+              clearApartmentId: clearApartmentId,
+            );
+            if (!mounted) return ok;
+
+            if (ok) {
+              ref.invalidate(accountsControllerProvider);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Dados da conta atualizados com sucesso.'),
+                ),
+              );
+            } else {
+              final err = ref
+                  .read(condominiumDetailsControllerProvider(_scope))
+                  .actionError;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(err ?? 'Erro ao atualizar dados da conta.'),
+                ),
+              );
+            }
+            return ok;
+          },
+    );
+  }
+
+  Future<void> _handlePasswordReset(UserModel user) async {
+    final confirmed = await showConfirmPasswordResetDialog(
+      context: context,
+      user: user,
+    );
+    if (!confirmed || !mounted) return;
+
+    final controller = ref.read(
+      condominiumDetailsControllerProvider(_scope).notifier,
+    );
+    final ok = await controller.sendUserPasswordReset(user.email);
+    if (!mounted) return;
+
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'E-mail de redefinição de senha enviado para ${user.email}.',
+          ),
+        ),
+      );
+    } else {
+      final err = ref
+          .read(condominiumDetailsControllerProvider(_scope))
+          .actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(err ?? 'Erro ao enviar redefinição de senha.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleToggleUser(UserModel user) async {
+    final confirmed = await showConfirmStatusToggleDialog(
+      context: context,
+      entityLabel: 'conta',
+      entityName: '${user.name} (${user.email})',
+      currentlyActive: user.active,
+    );
+    if (!confirmed || !mounted) return;
+
+    final controller = ref.read(
+      condominiumDetailsControllerProvider(_scope).notifier,
+    );
+    final ok = await controller.toggleCondominiumUserActive(user);
+    if (!mounted) return;
+
+    if (ok) {
+      ref.invalidate(accountsControllerProvider);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            user.active
+                ? 'Conta desativada com sucesso.'
+                : 'Conta reativada com sucesso.',
+          ),
+        ),
+      );
+    } else {
+      final err = ref
+          .read(condominiumDetailsControllerProvider(_scope))
+          .actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err ?? 'Erro ao alterar status da conta.')),
+      );
+    }
+  }
 }
 
-class _UserTile extends StatelessWidget {
-  final _CondominiumUser user;
-  final VoidCallback onOpen;
+class _CondominiumUserTile extends StatelessWidget {
+  final UserModel user;
+  final ApartmentWithBlockItem? linkedApartment;
+  final bool disabled;
+  final VoidCallback onCopyEmail;
+  final VoidCallback onEdit;
+  final VoidCallback onSendPasswordReset;
+  final VoidCallback onToggleActive;
 
-  const _UserTile({required this.user, required this.onOpen});
+  const _CondominiumUserTile({
+    required this.user,
+    required this.linkedApartment,
+    required this.disabled,
+    required this.onCopyEmail,
+    required this.onEdit,
+    required this.onSendPasswordReset,
+    required this.onToggleActive,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final isActive = user.status == 'Ativo';
+    final colorScheme = Theme.of(context).colorScheme;
+    final initial = user.name.trim().isNotEmpty
+        ? user.name.trim().substring(0, 1).toUpperCase()
+        : '?';
 
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      leading: CircleAvatar(child: Text(user.name.substring(0, 1))),
-      title: Text(
-        user.name,
-        style: const TextStyle(fontWeight: FontWeight.w600),
-      ),
-      subtitle: Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Text(user.email),
-      ),
-      trailing: Wrap(
-        spacing: 8,
+    final scopeLabel = linkedApartment != null
+        ? '${linkedApartment!.block.name} • Apto ${linkedApartment!.apartment.name}'
+        : 'Acesso geral ao condomínio';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      child: Wrap(
+        spacing: 16,
+        runSpacing: 12,
+        alignment: WrapAlignment.spaceBetween,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Chip(
-            label: Text(user.status),
-            backgroundColor: isActive
-                ? Theme.of(context).colorScheme.secondaryContainer
-                : Theme.of(context).colorScheme.errorContainer,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                backgroundColor: user.active
+                    ? colorScheme.primaryContainer
+                    : colorScheme.surfaceContainerHighest,
+                child: Text(
+                  initial,
+                  style: TextStyle(
+                    color: user.active
+                        ? colorScheme.onPrimaryContainer
+                        : colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 14),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user.name,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            user.email,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          tooltip: 'Copiar e-mail',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 28,
+                            minHeight: 28,
+                          ),
+                          onPressed: onCopyEmail,
+                          icon: const Icon(Icons.copy_outlined, size: 15),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      scopeLabel,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          FilledButton.tonal(onPressed: onOpen, child: const Text('Abrir')),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (user.mustChangePassword)
+                Tooltip(
+                  message:
+                      'Esta conta foi criada com senha temporária e ainda aguarda o primeiro login com troca de senha no aplicativo MedeJá.',
+                  child: Chip(
+                    avatar: Icon(
+                      Icons.key_outlined,
+                      size: 16,
+                      color: colorScheme.onTertiaryContainer,
+                    ),
+                    label: const Text('1º acesso pendente'),
+                    visualDensity: VisualDensity.compact,
+                    backgroundColor: colorScheme.tertiaryContainer,
+                  ),
+                ),
+              Chip(
+                label: Text(user.active ? 'Ativa' : 'Inativa'),
+                visualDensity: VisualDensity.compact,
+                backgroundColor: user.active
+                    ? colorScheme.secondaryContainer
+                    : colorScheme.surfaceContainerHighest,
+              ),
+              PopupMenuButton<String>(
+                tooltip: 'Ações da conta',
+                enabled: !disabled,
+                onSelected: (action) {
+                  switch (action) {
+                    case 'edit':
+                      onEdit();
+                      break;
+                    case 'reset_password':
+                      onSendPasswordReset();
+                      break;
+                    case 'toggle_active':
+                      onToggleActive();
+                      break;
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'edit',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.edit_outlined),
+                      title: Text('Editar dados'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'reset_password',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.lock_reset_outlined),
+                      title: Text('Enviar redefinição de senha'),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'toggle_active',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        user.active
+                            ? Icons.person_off_outlined
+                            : Icons.person_outline,
+                      ),
+                      title: Text(
+                        user.active ? 'Desativar conta' : 'Reativar conta',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 }
 
-class _CondominiumUser {
-  final String name;
-  final String email;
-  final String status;
-
-  const _CondominiumUser({
-    required this.name,
-    required this.email,
-    required this.status,
-  });
-}
-
 class _SummaryCard extends StatelessWidget {
   final String title;
   final String value;
+  final String? subtitle;
   final IconData icon;
 
   const _SummaryCard({
     required this.title,
     required this.value,
+    this.subtitle,
     required this.icon,
   });
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Row(
           children: [
-            Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
+            Icon(icon, size: 32, color: colorScheme.primary),
             const SizedBox(width: 16),
             Expanded(
               child: Column(
@@ -355,6 +845,15 @@ class _SummaryCard extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle!,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
