@@ -6,6 +6,7 @@ import 'package:mede_ja_admin/app/routes/app_routes.dart';
 import 'package:mede_ja_admin/features/condominos/condominium_details_controller.dart';
 import 'package:mede_ja_admin/features/contas/accounts_controller.dart';
 import 'package:mede_ja_admin/features/users/user_credentials_dialog.dart';
+import 'package:mede_ja_admin/features/users/user_model.dart';
 import 'package:mede_ja_admin/features/users/user_provisioning_datasrc.dart';
 
 class NewCondominiumUserPage extends ConsumerStatefulWidget {
@@ -33,6 +34,7 @@ class _NewCondominiumUserPageState
   final _emailController = TextEditingController();
   late final TextEditingController _tempPasswordController;
 
+  UserRole _selectedRole = UserRole.user;
   String? _selectedApartmentId;
   bool _active = true;
   bool _obscurePassword = false;
@@ -205,7 +207,7 @@ class _NewCondominiumUserPageState
         const SizedBox(height: 8),
         Text(
           condoName.isNotEmpty
-              ? 'Crie uma conta vinculada ao condomínio $condoName com senha temporária de primeiro acesso.'
+              ? 'Crie uma conta vinculada ao condomínio $condoName com perfil de acesso definido e senha temporária.'
               : 'Crie uma conta de acesso vinculada a este condomínio.',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
@@ -231,10 +233,7 @@ class _NewCondominiumUserPageState
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Icon(
-              Icons.verified_outlined,
-              color: colorScheme.primary,
-            ),
+            Icon(Icons.verified_outlined, color: colorScheme.primary),
             const SizedBox(width: 12),
             Expanded(
               child: Text(
@@ -266,10 +265,7 @@ class _NewCondominiumUserPageState
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            Icons.info_outline,
-            color: colorScheme.onTertiaryContainer,
-          ),
+          Icon(Icons.info_outline, color: colorScheme.onTertiaryContainer),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -324,7 +320,7 @@ class _NewCondominiumUserPageState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Dados do usuário',
+                'Dados e perfil do usuário',
                 style: Theme.of(
                   context,
                 ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
@@ -363,6 +359,75 @@ class _NewCondominiumUserPageState
                 ),
               ],
               const SizedBox(height: 24),
+              DropdownButtonFormField<UserRole>(
+                key: ValueKey(_selectedRole),
+                initialValue: _selectedRole,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Perfil de acesso (Role) *',
+                  helperText: _selectedRole.description,
+                  helperMaxLines: 2,
+                  prefixIcon: Icon(
+                    _selectedRole.isAdmin
+                        ? Icons.admin_panel_settings_outlined
+                        : Icons.smartphone_outlined,
+                  ),
+                  border: const OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: UserRole.user,
+                    child: Text(
+                      'Comum / Operacional — Apenas App Mobile (padrão)',
+                    ),
+                  ),
+                  DropdownMenuItem(
+                    value: UserRole.admin,
+                    child: Text('Administrador — Acesso ao Painel Admin'),
+                  ),
+                ],
+                onChanged: condoState.isSaving
+                    ? null
+                    : (value) {
+                        if (value == null) return;
+                        setState(() {
+                          _selectedRole = value;
+                        });
+                      },
+              ),
+              if (_selectedRole.isAdmin) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: colorScheme.tertiaryContainer.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: colorScheme.outlineVariant),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        size: 20,
+                        color: colorScheme.onTertiaryContainer,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Atenção: contas com perfil Administrador podem entrar neste painel web MedeJá Admin. Para zeladores e responsáveis pelas leituras, utilize o perfil Comum / Operacional.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: colorScheme.onTertiaryContainer,
+                              ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 20),
               TextFormField(
                 controller: _nameController,
                 autofocus: true,
@@ -534,7 +599,7 @@ class _NewCondominiumUserPageState
                 contentPadding: EdgeInsets.zero,
                 title: const Text('Conta ativa'),
                 subtitle: const Text(
-                  'Permite que o usuário faça login no aplicativo MedeJá.',
+                  'Permite que o usuário autentique conforme seu perfil de acesso.',
                 ),
                 value: _active,
                 onChanged: condoState.isSaving
@@ -603,6 +668,7 @@ class _NewCondominiumUserPageState
       name: _nameController.text.trim(),
       email: _emailController.text.trim(),
       temporaryPassword: _tempPasswordController.text,
+      role: _selectedRole,
       apartmentId: _selectedApartmentId,
       active: _active,
     );

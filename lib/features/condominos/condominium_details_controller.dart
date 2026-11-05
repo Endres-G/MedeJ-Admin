@@ -5,6 +5,7 @@ import 'package:mede_ja_admin/features/admin/admin_model.dart';
 import 'package:mede_ja_admin/features/admin/admin_repo.dart';
 import 'package:mede_ja_admin/features/apartamentos/apartamento_repo.dart';
 import 'package:mede_ja_admin/features/apartamentos/apartamentos_model.dart';
+import 'package:mede_ja_admin/features/auth/account_role_datasrc.dart';
 import 'package:mede_ja_admin/features/blocos/bloco_model.dart';
 import 'package:mede_ja_admin/features/blocos/bloco_repo.dart';
 import 'package:mede_ja_admin/features/condominos/condominio_model.dart';
@@ -167,6 +168,7 @@ final condominiumDetailsControllerProvider = StateNotifierProvider.autoDispose
           apartmentRepository: ref.watch(apartmentRepositoryProvider),
           userRepository: ref.watch(userRepositoryProvider),
           userAuthProvisioner: ref.watch(userAuthProvisionerProvider),
+          accountRoleRepository: ref.watch(accountRoleRepositoryProvider),
           onParentCachesInvalidated: (adminId) {
             if (adminId.isNotEmpty) {
               ref.invalidate(adminDetailsControllerProvider(adminId));
@@ -368,6 +370,7 @@ class CondominiumDetailsController
   final ApartmentRepository _apartmentRepository;
   final UserRepository _userRepository;
   final UserAuthProvisioner _userAuthProvisioner;
+  final AccountRoleRepository? _accountRoleRepository;
   final void Function(String administratorId)? _onParentCachesInvalidated;
 
   CondominiumDetailsController({
@@ -378,6 +381,7 @@ class CondominiumDetailsController
     required ApartmentRepository apartmentRepository,
     required UserRepository userRepository,
     UserAuthProvisioner? userAuthProvisioner,
+    AccountRoleRepository? accountRoleRepository,
     void Function(String administratorId)? onParentCachesInvalidated,
   }) : _adminRepository = adminRepository,
        _condominiumRepository = condominiumRepository,
@@ -386,6 +390,7 @@ class CondominiumDetailsController
        _userRepository = userRepository,
        _userAuthProvisioner =
            userAuthProvisioner ?? FirebaseUserAuthProvisioner(),
+       _accountRoleRepository = accountRoleRepository,
        _onParentCachesInvalidated = onParentCachesInvalidated,
        super(
          CondominiumDetailsState(
@@ -1107,6 +1112,7 @@ class CondominiumDetailsController
     required String name,
     required String email,
     required String temporaryPassword,
+    UserRole role = UserRole.user,
     String? apartmentId,
     bool active = true,
   }) async {
@@ -1166,6 +1172,7 @@ class CondominiumDetailsController
             email: normalizedEmail,
             apartmentId: cleanApartmentId,
             active: active,
+            role: role,
             mustChangePassword: true,
           );
           await _userRepository.saveUserWithId(
@@ -1173,6 +1180,19 @@ class CondominiumDetailsController
             scope.condominiumId,
             authUid,
             modelToSave,
+          );
+          await _accountRoleRepository?.saveAccountRole(
+            AccountRoleProfile(
+              uid: authUid,
+              name: trimmedName,
+              email: normalizedEmail,
+              role: role,
+              active: active,
+              mustChangePassword: true,
+              administratorId: adminId,
+              condominiumId: scope.condominiumId,
+            ),
+            isNew: true,
           );
           return modelToSave.copyWith(createdAt: DateTime.now());
         },
@@ -1210,6 +1230,7 @@ class CondominiumDetailsController
   Future<bool> updateCondominiumUser({
     required UserModel user,
     required String name,
+    UserRole? role,
     String? apartmentId,
     bool clearApartmentId = false,
   }) async {
@@ -1231,6 +1252,7 @@ class CondominiumDetailsController
 
     final updatedUser = user.copyWith(
       name: trimmedName,
+      role: role ?? user.role,
       apartmentId: cleanApartmentId,
       clearApartmentId: clearApartmentId || cleanApartmentId == null,
     );
@@ -1242,6 +1264,18 @@ class CondominiumDetailsController
         adminId,
         scope.condominiumId,
         updatedUser,
+      );
+      await _accountRoleRepository?.saveAccountRole(
+        AccountRoleProfile(
+          uid: updatedUser.id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          active: updatedUser.active,
+          mustChangePassword: updatedUser.mustChangePassword,
+          administratorId: adminId,
+          condominiumId: scope.condominiumId,
+        ),
       );
 
       final updatedUsers = state.users
@@ -1277,6 +1311,18 @@ class CondominiumDetailsController
         adminId,
         scope.condominiumId,
         updatedUser,
+      );
+      await _accountRoleRepository?.saveAccountRole(
+        AccountRoleProfile(
+          uid: updatedUser.id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          active: updatedUser.active,
+          mustChangePassword: updatedUser.mustChangePassword,
+          administratorId: adminId,
+          condominiumId: scope.condominiumId,
+        ),
       );
 
       final updatedUsers = state.users

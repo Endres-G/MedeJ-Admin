@@ -3,9 +3,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mede_ja_admin/app/routes/app_routes.dart';
+import 'package:mede_ja_admin/features/auth/auth_controller.dart';
 import 'package:mede_ja_admin/features/condominos/structure_dialogs.dart';
 import 'package:mede_ja_admin/features/contas/accounts_controller.dart';
 import 'package:mede_ja_admin/features/users/user_credentials_dialog.dart';
+import 'package:mede_ja_admin/features/users/user_model.dart';
 import 'package:mede_ja_admin/features/users/user_provisioning_datasrc.dart';
 
 class AccountsPage extends ConsumerStatefulWidget {
@@ -17,6 +19,7 @@ class AccountsPage extends ConsumerStatefulWidget {
 
 class _AccountsPageState extends ConsumerState<AccountsPage> {
   static const String _allAdminsSentinel = '__ALL_ADMINS__';
+  static const String _globalOnlySentinel = '__GLOBAL_ONLY__';
 
   final _searchController = TextEditingController();
   String _search = '';
@@ -33,6 +36,10 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(accountsControllerProvider);
+    final currentSessionUid = ref
+        .watch(authControllerProvider)
+        .currentProfile
+        ?.uid;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -47,7 +54,9 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
           );
         }
 
-        if (state.error != null && state.condominiumGroups.isEmpty) {
+        if (state.error != null &&
+            state.condominiumGroups.isEmpty &&
+            state.standalonePlatformAccounts.isEmpty) {
           return Center(
             child: Padding(
               padding: const EdgeInsets.all(32),
@@ -85,19 +94,23 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
 
         final validAdminIds = state.administrators.map((a) => a.id).toSet();
         final effectiveAdminFilter =
-            (_adminFilter != _allAdminsSentinel &&
-                validAdminIds.contains(_adminFilter))
+            (_adminFilter == _globalOnlySentinel ||
+                (_adminFilter != _allAdminsSentinel &&
+                    validAdminIds.contains(_adminFilter)))
             ? _adminFilter
             : _allAdminsSentinel;
 
         final query = _search.trim().toLowerCase();
         final filteredAccounts = state.allAccounts.where((item) {
-          if (effectiveAdminFilter != _allAdminsSentinel &&
-              item.administrator.id != effectiveAdminFilter) {
-            return false;
+          if (effectiveAdminFilter == _globalOnlySentinel) {
+            if (!item.isPlatformStandaloneAccount) return false;
+          } else if (effectiveAdminFilter != _allAdminsSentinel) {
+            if (item.administrator?.id != effectiveAdminFilter) return false;
           }
 
           final matchesStatus = switch (_statusFilter) {
+            'Admin' => item.user.isAdmin,
+            'Comum' => !item.user.isAdmin,
             'Ativo' => item.user.active,
             'Inativo' => !item.user.active,
             'PrimeiroAcesso' => item.user.mustChangePassword,
@@ -106,10 +119,13 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
           if (!matchesStatus) return false;
 
           if (query.isEmpty) return true;
+          final condoName = item.condominium?.name.toLowerCase() ?? '';
+          final adminName = item.administrator?.name.toLowerCase() ?? '';
           return item.user.name.toLowerCase().contains(query) ||
               item.user.email.toLowerCase().contains(query) ||
-              item.condominium.name.toLowerCase().contains(query) ||
-              item.administrator.name.toLowerCase().contains(query);
+              item.user.role.label.toLowerCase().contains(query) ||
+              condoName.contains(query) ||
+              adminName.contains(query);
         }).toList();
 
         return SingleChildScrollView(
@@ -127,13 +143,14 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
               const SizedBox(height: 28),
               _buildSectionTitle(context, state),
               const SizedBox(height: 16),
-              if (state.condominiumGroups.isEmpty)
-                _buildNoCondominiumsYetCard(context)
-              else ...[
-                _buildFilters(context, state, effectiveAdminFilter, isSmall),
-                const SizedBox(height: 16),
-                _buildAccountsList(context, state, filteredAccounts),
-              ],
+              _buildFilters(context, state, effectiveAdminFilter, isSmall),
+              const SizedBox(height: 16),
+              _buildAccountsList(
+                context,
+                state,
+                filteredAccounts,
+                currentSessionUid,
+              ),
             ],
           ),
         );
@@ -146,8 +163,6 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
     AccountsState state,
     bool isSmall,
   ) {
-    final canCreate = state.condominiumGroups.isNotEmpty && !state.isSaving;
-
     final titleColumn = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -159,14 +174,14 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Gerencie as contas operacionais vinculadas aos condomínios e o acesso inicial ao aplicativo MedeJá.',
+          'Gerencie administradores do painel e contas comuns/operacionais vinculadas aos condomínios.',
           style: Theme.of(context).textTheme.bodyLarge,
         ),
       ],
     );
 
     final createButton = FilledButton.icon(
-      onPressed: canCreate ? () => _openCreateAccountDialog() : null,
+      onPressed: state.isSaving ? null : () => _openCreateAccountDialog(),
       icon: const Icon(Icons.person_add_outlined),
       label: const Text('Nova conta'),
     );
@@ -239,7 +254,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                 title: 'Total de contas',
                 value: '${state.totalAccounts}',
                 subtitle:
-                    'Em ${state.condominiumGroups.length - state.condominiumsWithoutAccount.length} condomínio(s)',
+                    '${state.adminAccountsCount} Admin • ${state.commonAccountsCount} Comum',
                 icon: Icons.key_outlined,
               ),
             ),
@@ -314,7 +329,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Cada condomínio precisa de pelo menos 1 conta vinculada para execução das leituras no aplicativo MedeJá.',
+                        'Cada condomínio precisa de pelo menos 1 conta operacional (Comum) para execução das leituras no aplicativo MedeJá.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: colorScheme.onSurfaceVariant,
                         ),
@@ -363,6 +378,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                             : () => _openCreateAccountDialog(
                                 initialAdministratorId: group.administrator.id,
                                 initialCondominiumId: group.condominium.id,
+                                initialRole: UserRole.user,
                               ),
                         icon: const Icon(Icons.person_add_outlined, size: 18),
                         label: const Text('Criar conta'),
@@ -413,48 +429,6 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
     );
   }
 
-  Widget _buildNoCondominiumsYetCard(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(36),
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.domain_disabled_outlined,
-                  size: 48,
-                  color: Theme.of(context).colorScheme.outline,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Nenhum condomínio cadastrado ainda',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Cadastre primeiro uma administradora e um condomínio para poder vincular contas de usuários.',
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 20),
-                OutlinedButton.icon(
-                  onPressed: () => context.go(AppRoutes.administrators),
-                  icon: const Icon(Icons.business_outlined),
-                  label: const Text('Ir para Administradoras'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildFilters(
     BuildContext context,
     AccountsState state,
@@ -465,7 +439,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
       controller: _searchController,
       decoration: InputDecoration(
         labelText: 'Buscar conta',
-        hintText: 'Nome, e-mail, condomínio ou administradora',
+        hintText: 'Nome, e-mail, perfil, condomínio ou administradora',
         prefixIcon: const Icon(Icons.search),
         border: const OutlineInputBorder(),
         suffixIcon: _search.isNotEmpty
@@ -493,14 +467,19 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
       initialValue: effectiveAdminFilter,
       isExpanded: true,
       decoration: const InputDecoration(
-        labelText: 'Administradora',
+        labelText: 'Escopo / Administradora',
         border: OutlineInputBorder(),
       ),
       items: [
         const DropdownMenuItem(
           value: _allAdminsSentinel,
-          child: Text('Todas as administradoras'),
+          child: Text('Todos os escopos'),
         ),
+        if (state.standalonePlatformAccounts.isNotEmpty)
+          const DropdownMenuItem(
+            value: _globalOnlySentinel,
+            child: Text('Apenas Admins Globais (Painel)'),
+          ),
         ...state.administrators.map(
           (admin) => DropdownMenuItem(
             value: admin.id,
@@ -520,13 +499,15 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
       key: ValueKey(_statusFilter),
       initialValue: _statusFilter,
       decoration: const InputDecoration(
-        labelText: 'Status',
+        labelText: 'Perfil / Status',
         border: OutlineInputBorder(),
       ),
       items: const [
         DropdownMenuItem(value: 'Todos', child: Text('Todos')),
-        DropdownMenuItem(value: 'Ativo', child: Text('Ativas')),
-        DropdownMenuItem(value: 'Inativo', child: Text('Inativas')),
+        DropdownMenuItem(value: 'Admin', child: Text('Perfil: Admin')),
+        DropdownMenuItem(value: 'Comum', child: Text('Perfil: Comum (App)')),
+        DropdownMenuItem(value: 'Ativo', child: Text('Status: Ativas')),
+        DropdownMenuItem(value: 'Inativo', child: Text('Status: Inativas')),
         DropdownMenuItem(
           value: 'PrimeiroAcesso',
           child: Text('1º acesso pendente'),
@@ -558,7 +539,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
         const SizedBox(width: 16),
         Expanded(flex: 2, child: adminDropdown),
         const SizedBox(width: 16),
-        SizedBox(width: 220, child: statusDropdown),
+        SizedBox(width: 230, child: statusDropdown),
       ],
     );
   }
@@ -567,6 +548,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
     BuildContext context,
     AccountsState state,
     List<AccountOverviewItem> accounts,
+    String? currentSessionUid,
   ) {
     if (state.totalAccounts == 0) {
       return Card(
@@ -590,7 +572,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Clique em "Nova conta" para vincular um usuário a um condomínio e gerar a senha temporária de primeiro acesso.',
+                  'Clique em "Nova conta" para criar uma conta operacional de condomínio (Comum) ou um Administrador do painel.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
@@ -624,19 +606,25 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
       child: Column(
         children: List.generate(accounts.length, (index) {
           final item = accounts[index];
+          final isSelf =
+              currentSessionUid != null && currentSessionUid == item.user.id;
+
           return Column(
             children: [
               _GlobalAccountTile(
                 item: item,
+                isSelfAccount: isSelf,
                 disabled: state.isSaving,
                 onCopyEmail: () => _copyEmail(item.user.email),
-                onOpenCondominiumUsers: () => context.go(
-                  AppRoutes.condominiumUsersPath(
-                    item.condominium.id,
-                    administratorId: item.administrator.id,
-                  ),
-                ),
-                onEdit: () => _openEditAccount(item),
+                onOpenCondominiumUsers: item.isPlatformStandaloneAccount
+                    ? null
+                    : () => context.go(
+                        AppRoutes.condominiumUsersPath(
+                          item.condominium!.id,
+                          administratorId: item.administrator!.id,
+                        ),
+                      ),
+                onEdit: () => _openEditAccount(item, isSelf),
                 onSendPasswordReset: () => _handlePasswordReset(item),
                 onToggleActive: () => _handleToggleAccount(item),
               ),
@@ -659,6 +647,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
   Future<void> _openCreateAccountDialog({
     String? initialAdministratorId,
     String? initialCondominiumId,
+    UserRole? initialRole,
   }) async {
     final credentials = await showDialog<ProvisionedUserCredentials>(
       context: context,
@@ -666,6 +655,7 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
       builder: (_) => _CreateGlobalAccountDialog(
         initialAdministratorId: initialAdministratorId,
         initialCondominiumId: initialCondominiumId,
+        initialRole: initialRole,
       ),
     );
 
@@ -677,27 +667,33 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
     );
   }
 
-  Future<void> _openEditAccount(AccountOverviewItem item) async {
+  Future<void> _openEditAccount(
+    AccountOverviewItem item,
+    bool isSelfAccount,
+  ) async {
     await showEditUserDialog(
       context: context,
       user: item.user,
+      isCurrentSessionUser: isSelfAccount,
       onSubmit:
           ({
             required String name,
+            required UserRole role,
             String? apartmentId,
             bool clearApartmentId = false,
           }) async {
             final controller = ref.read(accountsControllerProvider.notifier);
-            final ok = await controller.updateAccountName(
+            final ok = await controller.updateAccount(
               item: item,
               name: name,
+              role: role,
             );
             if (!mounted) return ok;
 
             if (ok) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Conta atualizada com sucesso.'),
+                  content: Text('Conta e permissões atualizadas com sucesso.'),
                 ),
               );
             } else {
@@ -741,10 +737,14 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
   }
 
   Future<void> _handleToggleAccount(AccountOverviewItem item) async {
+    final scopeSuffix = item.condominium != null
+        ? ' (${item.condominium!.name})'
+        : ' (Painel Admin)';
+
     final confirmed = await showConfirmStatusToggleDialog(
       context: context,
       entityLabel: 'conta',
-      entityName: '${item.user.name} (${item.condominium.name})',
+      entityName: '${item.user.name}$scopeSuffix',
       currentlyActive: item.user.active,
     );
     if (!confirmed || !mounted) return;
@@ -774,15 +774,17 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
 
 class _GlobalAccountTile extends StatelessWidget {
   final AccountOverviewItem item;
+  final bool isSelfAccount;
   final bool disabled;
   final VoidCallback onCopyEmail;
-  final VoidCallback onOpenCondominiumUsers;
+  final VoidCallback? onOpenCondominiumUsers;
   final VoidCallback onEdit;
   final VoidCallback onSendPasswordReset;
   final VoidCallback onToggleActive;
 
   const _GlobalAccountTile({
     required this.item,
+    required this.isSelfAccount,
     required this.disabled,
     required this.onCopyEmail,
     required this.onOpenCondominiumUsers,
@@ -813,13 +815,17 @@ class _GlobalAccountTile extends StatelessWidget {
             children: [
               CircleAvatar(
                 backgroundColor: user.active
-                    ? colorScheme.primaryContainer
+                    ? (user.isAdmin
+                          ? colorScheme.primaryContainer
+                          : colorScheme.secondaryContainer)
                     : colorScheme.surfaceContainerHighest,
                 child: Text(
                   initial,
                   style: TextStyle(
                     color: user.active
-                        ? colorScheme.onPrimaryContainer
+                        ? (user.isAdmin
+                              ? colorScheme.onPrimaryContainer
+                              : colorScheme.onSecondaryContainer)
                         : colorScheme.onSurfaceVariant,
                     fontWeight: FontWeight.bold,
                   ),
@@ -831,11 +837,28 @@ class _GlobalAccountTile extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      user.name,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            user.name,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                        if (isSelfAccount) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            '(Sua conta)',
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  color: colorScheme.primary,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 2),
                     Row(
@@ -862,28 +885,51 @@ class _GlobalAccountTile extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: [
-                        ActionChip(
-                          avatar: const Icon(Icons.apartment_outlined, size: 16),
-                          label: Text(
-                            '${item.condominium.name} • ${item.administrator.name}',
+                    if (item.isPlatformStandaloneAccount)
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.shield_outlined,
+                            size: 15,
+                            color: colorScheme.primary,
                           ),
-                          visualDensity: VisualDensity.compact,
-                          tooltip: 'Abrir contas deste condomínio',
-                          onPressed: onOpenCondominiumUsers,
-                        ),
-                        if (item.condominiumTotalAccounts > 1)
+                          const SizedBox(width: 6),
                           Text(
-                            '(${item.condominiumTotalAccounts} contas no condomínio)',
+                            'Acesso global ao Painel MedeJá Admin',
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: colorScheme.onSurfaceVariant),
                           ),
-                      ],
-                    ),
+                        ],
+                      )
+                    else
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          ActionChip(
+                            avatar: const Icon(
+                              Icons.apartment_outlined,
+                              size: 16,
+                            ),
+                            label: Text(
+                              '${item.condominium!.name} • ${item.administrator!.name}',
+                            ),
+                            visualDensity: VisualDensity.compact,
+                            tooltip: 'Abrir contas deste condomínio',
+                            onPressed: onOpenCondominiumUsers,
+                          ),
+                          if (item.condominiumTotalAccounts > 1)
+                            Text(
+                              '(${item.condominiumTotalAccounts} contas no condomínio)',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: colorScheme.onSurfaceVariant,
+                                  ),
+                            ),
+                        ],
+                      ),
                   ],
                 ),
               ),
@@ -894,10 +940,26 @@ class _GlobalAccountTile extends StatelessWidget {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
+              Chip(
+                avatar: Icon(
+                  user.isAdmin
+                      ? Icons.admin_panel_settings_outlined
+                      : Icons.smartphone_outlined,
+                  size: 16,
+                  color: user.isAdmin
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.onSurfaceVariant,
+                ),
+                label: Text(user.role.shortLabel),
+                visualDensity: VisualDensity.compact,
+                backgroundColor: user.isAdmin
+                    ? colorScheme.primaryContainer
+                    : colorScheme.surfaceContainerHigh,
+              ),
               if (user.mustChangePassword)
                 Tooltip(
                   message:
-                      'Criada com senha temporária — aguardando primeiro acesso e troca de senha no aplicativo MedeJá.',
+                      'Criada com senha temporária — aguardando primeiro acesso e troca de senha.',
                   child: Chip(
                     avatar: Icon(
                       Icons.key_outlined,
@@ -928,7 +990,7 @@ class _GlobalAccountTile extends StatelessWidget {
                       onSendPasswordReset();
                       break;
                     case 'open_condo':
-                      onOpenCondominiumUsers();
+                      onOpenCondominiumUsers?.call();
                       break;
                     case 'toggle_active':
                       onToggleActive();
@@ -941,7 +1003,7 @@ class _GlobalAccountTile extends StatelessWidget {
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.edit_outlined),
-                      title: Text('Editar nome'),
+                      title: Text('Editar dados e perfil'),
                     ),
                   ),
                   const PopupMenuItem(
@@ -952,28 +1014,30 @@ class _GlobalAccountTile extends StatelessWidget {
                       title: Text('Enviar redefinição de senha'),
                     ),
                   ),
-                  const PopupMenuItem(
-                    value: 'open_condo',
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.apartment_outlined),
-                      title: Text('Ver contas do condomínio'),
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'toggle_active',
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        user.active
-                            ? Icons.person_off_outlined
-                            : Icons.person_outline,
-                      ),
-                      title: Text(
-                        user.active ? 'Desativar conta' : 'Reativar conta',
+                  if (onOpenCondominiumUsers != null)
+                    const PopupMenuItem(
+                      value: 'open_condo',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.apartment_outlined),
+                        title: Text('Ver contas do condomínio'),
                       ),
                     ),
-                  ),
+                  if (!isSelfAccount)
+                    PopupMenuItem(
+                      value: 'toggle_active',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          user.active
+                              ? Icons.person_off_outlined
+                              : Icons.person_outline,
+                        ),
+                        title: Text(
+                          user.active ? 'Desativar conta' : 'Reativar conta',
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ],
@@ -987,10 +1051,12 @@ class _GlobalAccountTile extends StatelessWidget {
 class _CreateGlobalAccountDialog extends ConsumerStatefulWidget {
   final String? initialAdministratorId;
   final String? initialCondominiumId;
+  final UserRole? initialRole;
 
   const _CreateGlobalAccountDialog({
     this.initialAdministratorId,
     this.initialCondominiumId,
+    this.initialRole,
   });
 
   @override
@@ -1005,6 +1071,7 @@ class _CreateGlobalAccountDialogState
   final _emailController = TextEditingController();
   late final TextEditingController _tempPasswordController;
 
+  late UserRole _selectedRole;
   String? _selectedAdministratorId;
   String? _selectedCondominiumId;
   bool _active = true;
@@ -1018,13 +1085,17 @@ class _CreateGlobalAccountDialogState
     );
 
     final state = ref.read(accountsControllerProvider);
+    final hasAnyCondominium = state.condominiumGroups.isNotEmpty;
+
+    _selectedRole =
+        widget.initialRole ??
+        (hasAnyCondominium ? UserRole.user : UserRole.admin);
 
     if (widget.initialAdministratorId != null &&
         widget.initialCondominiumId != null) {
       _selectedAdministratorId = widget.initialAdministratorId;
       _selectedCondominiumId = widget.initialCondominiumId;
     } else if (state.condominiumsWithoutAccount.isNotEmpty) {
-      // Pré-seleciona automaticamente o primeiro condomínio que ainda não tem conta!
       final firstWithout = state.condominiumsWithoutAccount.first;
       _selectedAdministratorId = firstWithout.administrator.id;
       _selectedCondominiumId = firstWithout.condominium.id;
@@ -1050,21 +1121,36 @@ class _CreateGlobalAccountDialogState
     });
   }
 
-  Future<void> _submit() async {
+  Future<void> _submit({
+    required String? effectiveAdminId,
+    required String? effectiveCondoId,
+  }) async {
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedAdministratorId == null || _selectedCondominiumId == null) {
-      return;
-    }
 
     final controller = ref.read(accountsControllerProvider.notifier);
-    final credentials = await controller.provisionAccount(
-      administratorId: _selectedAdministratorId!,
-      condominiumId: _selectedCondominiumId!,
-      name: _nameController.text.trim(),
-      email: _emailController.text.trim(),
-      temporaryPassword: _tempPasswordController.text,
-      active: _active,
-    );
+
+    ProvisionedUserCredentials? credentials;
+    if (_selectedRole.isAdmin) {
+      credentials = await controller.provisionPlatformAdminAccount(
+        name: _nameController.text.trim(),
+        email: _emailController.text.trim(),
+        temporaryPassword: _tempPasswordController.text,
+        active: _active,
+      );
+    } else {
+      if (effectiveAdminId == null || effectiveCondoId == null) {
+        return;
+      }
+      credentials = await controller.provisionAccount(
+        administratorId: effectiveAdminId,
+        condominiumId: effectiveCondoId,
+        name: _nameController.text.trim(),
+        email: _emailController.text.trim(),
+        temporaryPassword: _tempPasswordController.text,
+        role: UserRole.user,
+        active: _active,
+      );
+    }
 
     if (!mounted) return;
     if (credentials != null) {
@@ -1080,6 +1166,7 @@ class _CreateGlobalAccountDialogState
     final adminsWithCondos = state.administrators
         .where((admin) => state.groupsByAdministrator(admin.id).isNotEmpty)
         .toList();
+    final hasAnyCondominium = adminsWithCondos.isNotEmpty;
 
     final effectiveAdminId =
         (_selectedAdministratorId != null &&
@@ -1093,7 +1180,9 @@ class _CreateGlobalAccountDialogState
 
     final effectiveCondoId =
         (_selectedCondominiumId != null &&
-            condosForAdmin.any((g) => g.condominium.id == _selectedCondominiumId))
+            condosForAdmin.any(
+              (g) => g.condominium.id == _selectedCondominiumId,
+            ))
         ? _selectedCondominiumId!
         : (condosForAdmin.isNotEmpty
               ? condosForAdmin.first.condominium.id
@@ -1103,8 +1192,11 @@ class _CreateGlobalAccountDialogState
         ? state.findGroup(effectiveAdminId, effectiveCondoId)
         : null;
 
+    final canSubmit =
+        !state.isSaving && (_selectedRole.isAdmin || hasAnyCondominium);
+
     return AlertDialog(
-      title: const Text('Nova conta vinculada a condomínio'),
+      title: const Text('Nova conta'),
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 540),
         child: SingleChildScrollView(
@@ -1129,85 +1221,53 @@ class _CreateGlobalAccountDialogState
                   ),
                   const SizedBox(height: 16),
                 ],
-                DropdownButtonFormField<String>(
-                  key: ValueKey('adm_$effectiveAdminId'),
-                  initialValue: effectiveAdminId,
+                DropdownButtonFormField<UserRole>(
+                  key: ValueKey(_selectedRole),
+                  initialValue: _selectedRole,
                   isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Administradora *',
-                    prefixIcon: Icon(Icons.business_outlined),
-                    border: OutlineInputBorder(),
+                  decoration: InputDecoration(
+                    labelText: 'Perfil de acesso (Role) *',
+                    helperText: _selectedRole.description,
+                    helperMaxLines: 2,
+                    prefixIcon: Icon(
+                      _selectedRole.isAdmin
+                          ? Icons.admin_panel_settings_outlined
+                          : Icons.smartphone_outlined,
+                    ),
+                    border: const OutlineInputBorder(),
                   ),
-                  items: adminsWithCondos
-                      .map(
-                        (admin) => DropdownMenuItem<String>(
-                          value: admin.id,
-                          child: Text(
-                            admin.name,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                  items: [
+                    if (hasAnyCondominium)
+                      const DropdownMenuItem(
+                        value: UserRole.user,
+                        child: Text(
+                          'Comum / Operacional (Condomínio • App Mobile)',
                         ),
-                      )
-                      .toList(),
+                      ),
+                    const DropdownMenuItem(
+                      value: UserRole.admin,
+                      child: Text(
+                        'Administrador (Acesso ao Painel MedeJá Admin)',
+                      ),
+                    ),
+                  ],
                   onChanged: state.isSaving
                       ? null
-                      : (newAdminId) {
-                          if (newAdminId == null) return;
-                          final nextCondos = state.groupsByAdministrator(
-                            newAdminId,
-                          );
-                          final preferred = nextCondos
-                              .where((g) => !g.hasAccount)
-                              .toList();
+                      : (value) {
+                          if (value == null) return;
                           setState(() {
-                            _selectedAdministratorId = newAdminId;
-                            _selectedCondominiumId = preferred.isNotEmpty
-                                ? preferred.first.condominium.id
-                                : (nextCondos.isNotEmpty
-                                      ? nextCondos.first.condominium.id
-                                      : null);
+                            _selectedRole = value;
                           });
                         },
                 ),
                 const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  key: ValueKey('condo_${effectiveAdminId}_$effectiveCondoId'),
-                  initialValue: effectiveCondoId,
-                  isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Condomínio vinculado *',
-                    prefixIcon: Icon(Icons.apartment_outlined),
-                    border: OutlineInputBorder(),
-                  ),
-                  items: condosForAdmin.map((group) {
-                    final statusTag = group.totalUsers == 0
-                        ? 'Sem conta'
-                        : '${group.totalUsers} conta(s)';
-                    return DropdownMenuItem<String>(
-                      value: group.condominium.id,
-                      child: Text(
-                        '${group.condominium.name} ($statusTag)',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    );
-                  }).toList(),
-                  onChanged: state.isSaving
-                      ? null
-                      : (newCondoId) {
-                          setState(() {
-                            _selectedAdministratorId = effectiveAdminId;
-                            _selectedCondominiumId = newCondoId;
-                          });
-                        },
-                ),
-                if (selectedGroup != null && selectedGroup.hasAccount) ...[
-                  const SizedBox(height: 14),
+                if (_selectedRole.isAdmin) ...[
                   Container(
                     width: double.infinity,
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: colorScheme.tertiaryContainer.withValues(
-                        alpha: 0.6,
+                      color: colorScheme.primaryContainer.withValues(
+                        alpha: 0.45,
                       ),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(color: colorScheme.outlineVariant),
@@ -1216,23 +1276,128 @@ class _CreateGlobalAccountDialogState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Icon(
-                          Icons.info_outline,
+                          Icons.shield_outlined,
                           size: 18,
-                          color: colorScheme.onTertiaryContainer,
+                          color: colorScheme.primary,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Este condomínio já possui ${selectedGroup.totalUsers} conta(s) vinculada(s). O comum é 1 conta por condomínio, mas você pode prosseguir para cadastrar um operador adicional.',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  color: colorScheme.onTertiaryContainer,
-                                ),
+                            'Conta Administrativa Global: poderá fazer login neste painel web MedeJá Admin e gerenciar administradoras, condomínios e contas.',
+                            style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ),
                       ],
                     ),
                   ),
+                ] else ...[
+                  DropdownButtonFormField<String>(
+                    key: ValueKey('adm_$effectiveAdminId'),
+                    initialValue: effectiveAdminId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Administradora *',
+                      prefixIcon: Icon(Icons.business_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: adminsWithCondos
+                        .map(
+                          (admin) => DropdownMenuItem<String>(
+                            value: admin.id,
+                            child: Text(
+                              admin.name,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: state.isSaving
+                        ? null
+                        : (newAdminId) {
+                            if (newAdminId == null) return;
+                            final nextCondos = state.groupsByAdministrator(
+                              newAdminId,
+                            );
+                            final preferred = nextCondos
+                                .where((g) => !g.hasAccount)
+                                .toList();
+                            setState(() {
+                              _selectedAdministratorId = newAdminId;
+                              _selectedCondominiumId = preferred.isNotEmpty
+                                  ? preferred.first.condominium.id
+                                  : (nextCondos.isNotEmpty
+                                        ? nextCondos.first.condominium.id
+                                        : null);
+                            });
+                          },
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    key: ValueKey(
+                      'condo_${effectiveAdminId}_$effectiveCondoId',
+                    ),
+                    initialValue: effectiveCondoId,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Condomínio vinculado *',
+                      prefixIcon: Icon(Icons.apartment_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: condosForAdmin.map((group) {
+                      final statusTag = group.totalUsers == 0
+                          ? 'Sem conta'
+                          : '${group.totalUsers} conta(s)';
+                      return DropdownMenuItem<String>(
+                        value: group.condominium.id,
+                        child: Text(
+                          '${group.condominium.name} ($statusTag)',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: state.isSaving
+                        ? null
+                        : (newCondoId) {
+                            setState(() {
+                              _selectedAdministratorId = effectiveAdminId;
+                              _selectedCondominiumId = newCondoId;
+                            });
+                          },
+                  ),
+                  if (selectedGroup != null && selectedGroup.hasAccount) ...[
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: colorScheme.tertiaryContainer.withValues(
+                          alpha: 0.6,
+                        ),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: colorScheme.outlineVariant),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 18,
+                            color: colorScheme.onTertiaryContainer,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Este condomínio já possui ${selectedGroup.totalUsers} conta(s) vinculada(s). O comum é 1 conta por condomínio, mas você pode prosseguir para cadastrar um operador adicional.',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: colorScheme.onTertiaryContainer,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
                 const SizedBox(height: 16),
                 TextFormField(
@@ -1293,8 +1458,9 @@ class _CreateGlobalAccountDialogState
                   ),
                   decoration: InputDecoration(
                     labelText: 'Senha temporária de 1º acesso *',
-                    helperText:
-                        'O usuário trocará esta senha ao entrar no app MedeJá.',
+                    helperText: _selectedRole.isAdmin
+                        ? 'Compartilhe com segurança com o novo administrador.'
+                        : 'O usuário trocará esta senha ao entrar no app MedeJá.',
                     prefixIcon: const Icon(Icons.key_outlined),
                     border: const OutlineInputBorder(),
                     suffixIcon: Row(
@@ -1331,7 +1497,7 @@ class _CreateGlobalAccountDialogState
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Conta ativa'),
-                  subtitle: const Text('Habilita acesso imediato ao app.'),
+                  subtitle: const Text('Habilita acesso imediato ao sistema.'),
                   value: _active,
                   onChanged: state.isSaving
                       ? null
@@ -1348,13 +1514,12 @@ class _CreateGlobalAccountDialogState
           child: const Text('Cancelar'),
         ),
         FilledButton.icon(
-          onPressed: state.isSaving
+          onPressed: !canSubmit
               ? null
-              : () {
-                  _selectedAdministratorId = effectiveAdminId;
-                  _selectedCondominiumId = effectiveCondoId;
-                  _submit();
-                },
+              : () => _submit(
+                  effectiveAdminId: effectiveAdminId,
+                  effectiveCondoId: effectiveCondoId,
+                ),
           icon: state.isSaving
               ? const SizedBox(
                   width: 18,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mede_ja_admin/features/auth/account_role_datasrc.dart';
 import 'package:mede_ja_admin/features/auth/auth_controller.dart';
 
 import '../routes/app_routes.dart';
@@ -13,6 +14,30 @@ class AppShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authControllerProvider);
+
+    if (authState.status == AuthSessionStatus.checking) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
+              Text(
+                'Verificando permissões de administrador...',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (!authState.isAuthorizedAdmin) {
+      return const Scaffold(body: SizedBox.shrink());
+    }
+
     final activePath = currentPath ?? GoRouterState.of(context).uri.path;
     final backgroundColor = Theme.of(context).scaffoldBackgroundColor;
 
@@ -29,6 +54,7 @@ class AppShell extends ConsumerWidget {
                   context,
                   ref,
                   activePath: activePath,
+                  currentProfile: authState.currentProfile,
                   closeDrawerOnNavigate: true,
                 ),
               ),
@@ -51,6 +77,7 @@ class AppShell extends ConsumerWidget {
                   context,
                   ref,
                   activePath: activePath,
+                  currentProfile: authState.currentProfile,
                   closeDrawerOnNavigate: false,
                 ),
               ),
@@ -68,8 +95,11 @@ class AppShell extends ConsumerWidget {
     BuildContext context,
     WidgetRef ref, {
     required String activePath,
+    required AccountRoleProfile? currentProfile,
     required bool closeDrawerOnNavigate,
   }) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     void navigateTo(String route) {
       if (closeDrawerOnNavigate && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
@@ -141,6 +171,60 @@ class AppShell extends ConsumerWidget {
           onTap: () => navigateTo(AppRoutes.reports),
         ),
         const Spacer(),
+        if (currentProfile != null) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: colorScheme.surface.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: colorScheme.outlineVariant),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.admin_panel_settings_outlined,
+                        size: 16,
+                        color: colorScheme.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          currentProfile.name.isNotEmpty
+                              ? currentProfile.name
+                              : 'Administrador',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (currentProfile.email.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      currentProfile.email,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ],
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           child: ListTile(

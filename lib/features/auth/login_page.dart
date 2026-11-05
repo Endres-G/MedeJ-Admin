@@ -30,29 +30,23 @@ class _LoginPageState extends ConsumerState<LoginPage> {
       return;
     }
 
-    final success = await ref
+    await ref
         .read(authControllerProvider.notifier)
         .login(
           email: _emailController.text.trim(),
           password: _passwordController.text,
         );
-
-    if (success && mounted) {
-      // Não fazemos navegação aqui.
-      //
-      // O GoRouter vai perceber que o FirebaseAuth
-      // agora possui um usuário autenticado.
-    }
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(authControllerProvider);
+    final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
+          constraints: const BoxConstraints(maxWidth: 440),
           child: Padding(
             padding: const EdgeInsets.all(24),
             child: Form(
@@ -66,19 +60,18 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                   ),
-
                   const SizedBox(height: 8),
-
                   Text(
-                    'Acesse o painel administrativo',
+                    'Acesso exclusivo para administradores da plataforma',
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
                   ),
-
                   const SizedBox(height: 32),
-
                   TextFormField(
                     controller: _emailController,
+                    enabled: !state.loading,
                     keyboardType: TextInputType.emailAddress,
                     textInputAction: TextInputAction.next,
                     decoration: const InputDecoration(
@@ -98,11 +91,10 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       return null;
                     },
                   ),
-
                   const SizedBox(height: 16),
-
                   TextFormField(
                     controller: _passwordController,
+                    enabled: !state.loading,
                     obscureText: _obscurePassword,
                     textInputAction: TextInputAction.done,
                     onFieldSubmitted: (_) => _login(),
@@ -131,20 +123,38 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       return null;
                     },
                   ),
-
                   if (state.error != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      state.error!,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: colorScheme.errorContainer,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                            Icons.gpp_bad_outlined,
+                            size: 20,
+                            color: colorScheme.onErrorContainer,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              state.error!,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: colorScheme.onErrorContainer,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
-
                   const SizedBox(height: 24),
-
                   SizedBox(
                     height: 48,
                     child: FilledButton(

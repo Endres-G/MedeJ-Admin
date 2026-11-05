@@ -18,9 +18,11 @@ Future<void> showProvisionedCredentialsDialog({
 Future<void> showEditUserDialog({
   required BuildContext context,
   required UserModel user,
+  bool isCurrentSessionUser = false,
   List<ApartmentWithBlockItem>? availableApartments,
   required Future<bool> Function({
     required String name,
+    required UserRole role,
     String? apartmentId,
     bool clearApartmentId,
   })
@@ -30,6 +32,7 @@ Future<void> showEditUserDialog({
     context: context,
     builder: (_) => _EditUserDialog(
       user: user,
+      isCurrentSessionUser: isCurrentSessionUser,
       availableApartments: availableApartments,
       onSubmit: onSubmit,
     ),
@@ -171,7 +174,16 @@ class _ProvisionedCredentialsDialogState
               ),
               const SizedBox(height: 18),
               _CredentialInfoRow(
-                label: 'Condomínio',
+                label: 'Perfil (Role)',
+                value: creds.user.isAdmin
+                    ? 'Administrador (Acesso ao Painel Admin)'
+                    : 'Comum / Operacional (Apenas App Mobile)',
+              ),
+              const SizedBox(height: 8),
+              _CredentialInfoRow(
+                label: creds.condominiumId.trim().isNotEmpty
+                    ? 'Condomínio'
+                    : 'Escopo',
                 value: creds.condominiumName,
               ),
               if (creds.administratorName != null &&
@@ -231,7 +243,9 @@ class _ProvisionedCredentialsDialogState
               ),
               const SizedBox(height: 14),
               Text(
-                'Como funciona o primeiro acesso: ao entrar no aplicativo MedeJá com esta senha temporária, a conta estará marcada para redefinição obrigatória de senha no primeiro login.',
+                creds.user.isAdmin
+                    ? 'Esta conta possui permissão de Administrador e pode autenticar no painel web MedeJá Admin.'
+                    : 'Esta conta possui perfil Comum/Operacional: ela é bloqueada no painel Admin e deve ser usada exclusivamente no aplicativo mobile MedeJá (onde redefinirá a senha no 1º login).',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                 ),
@@ -296,9 +310,11 @@ class _CredentialInfoRow extends StatelessWidget {
 
 class _EditUserDialog extends StatefulWidget {
   final UserModel user;
+  final bool isCurrentSessionUser;
   final List<ApartmentWithBlockItem>? availableApartments;
   final Future<bool> Function({
     required String name,
+    required UserRole role,
     String? apartmentId,
     bool clearApartmentId,
   })
@@ -306,6 +322,7 @@ class _EditUserDialog extends StatefulWidget {
 
   const _EditUserDialog({
     required this.user,
+    required this.isCurrentSessionUser,
     required this.availableApartments,
     required this.onSubmit,
   });
@@ -317,6 +334,7 @@ class _EditUserDialog extends StatefulWidget {
 class _EditUserDialogState extends State<_EditUserDialog> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
+  late UserRole _selectedRole;
   String? _selectedApartmentId;
   bool _isSubmitting = false;
 
@@ -326,6 +344,7 @@ class _EditUserDialogState extends State<_EditUserDialog> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.user.name);
+    _selectedRole = widget.user.role;
     _selectedApartmentId = widget.user.apartmentId;
     _nameController.addListener(_onChanged);
   }
@@ -343,8 +362,9 @@ class _EditUserDialogState extends State<_EditUserDialog> {
 
   bool get _hasChanges {
     final nameChanged = _nameController.text.trim() != widget.user.name.trim();
+    final roleChanged = _selectedRole != widget.user.role;
     if (widget.availableApartments == null) {
-      return nameChanged;
+      return nameChanged || roleChanged;
     }
     final initialApt =
         (widget.user.apartmentId == null || widget.user.apartmentId!.isEmpty)
@@ -354,7 +374,7 @@ class _EditUserDialogState extends State<_EditUserDialog> {
         (_selectedApartmentId == null || _selectedApartmentId!.isEmpty)
         ? null
         : _selectedApartmentId;
-    return nameChanged || initialApt != currentApt;
+    return nameChanged || roleChanged || initialApt != currentApt;
   }
 
   bool get _isValid => _nameController.text.trim().length >= 3;
@@ -369,6 +389,7 @@ class _EditUserDialogState extends State<_EditUserDialog> {
 
     final ok = await widget.onSubmit(
       name: _nameController.text.trim(),
+      role: _selectedRole,
       apartmentId: _selectedApartmentId,
       clearApartmentId: _selectedApartmentId == null,
     );
@@ -386,10 +407,9 @@ class _EditUserDialogState extends State<_EditUserDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final apartments = widget.availableApartments;
-    final validApartmentIds = apartments
-        ?.map((a) => a.apartment.id)
-        .toSet();
+    final validApartmentIds = apartments?.map((a) => a.apartment.id).toSet();
     final dropdownValue =
         (_selectedApartmentId != null &&
             validApartmentIds != null &&
@@ -398,80 +418,138 @@ class _EditUserDialogState extends State<_EditUserDialog> {
         : _noApartmentSentinel;
 
     return AlertDialog(
-      title: const Text('Editar conta de usuário'),
+      title: const Text('Editar conta e permissões'),
       content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 460),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextFormField(
-                controller: _nameController,
-                autofocus: true,
-                enabled: !_isSubmitting,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                  labelText: 'Nome completo *',
-                  prefixIcon: Icon(Icons.person_outline),
-                  border: OutlineInputBorder(),
-                ),
-                validator: (value) {
-                  if (value == null || value.trim().length < 3) {
-                    return 'Informe um nome com pelo menos 3 caracteres.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                initialValue: widget.user.email,
-                enabled: false,
-                decoration: const InputDecoration(
-                  labelText: 'E-mail de acesso (identificador da conta)',
-                  prefixIcon: Icon(Icons.email_outlined),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              if (apartments != null && apartments.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  key: ValueKey(dropdownValue),
-                  initialValue: dropdownValue,
-                  isExpanded: true,
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: SingleChildScrollView(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextFormField(
+                  controller: _nameController,
+                  autofocus: true,
+                  enabled: !_isSubmitting,
+                  textCapitalization: TextCapitalization.words,
                   decoration: const InputDecoration(
-                    labelText: 'Vínculo de unidade (opcional)',
-                    prefixIcon: Icon(Icons.home_work_outlined),
+                    labelText: 'Nome completo *',
+                    prefixIcon: Icon(Icons.person_outline),
                     border: OutlineInputBorder(),
                   ),
-                  items: [
-                    const DropdownMenuItem<String>(
-                      value: _noApartmentSentinel,
-                      child: Text('Acesso geral ao condomínio (padrão)'),
+                  validator: (value) {
+                    if (value == null || value.trim().length < 3) {
+                      return 'Informe um nome com pelo menos 3 caracteres.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  initialValue: widget.user.email,
+                  enabled: false,
+                  decoration: const InputDecoration(
+                    labelText: 'E-mail de acesso (identificador da conta)',
+                    prefixIcon: Icon(Icons.email_outlined),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                DropdownButtonFormField<UserRole>(
+                  key: ValueKey(_selectedRole),
+                  initialValue: _selectedRole,
+                  isExpanded: true,
+                  decoration: InputDecoration(
+                    labelText: 'Perfil de acesso (Role) *',
+                    helperText: widget.isCurrentSessionUser
+                        ? 'Você não pode remover o perfil Admin da sua própria conta em uso.'
+                        : _selectedRole.description,
+                    helperMaxLines: 2,
+                    prefixIcon: Icon(
+                      _selectedRole.isAdmin
+                          ? Icons.admin_panel_settings_outlined
+                          : Icons.smartphone_outlined,
                     ),
-                    ...apartments.map(
-                      (item) => DropdownMenuItem<String>(
-                        value: item.apartment.id,
-                        child: Text(
-                          '${item.block.name} • Apto ${item.apartment.name}',
-                        ),
-                      ),
+                    border: const OutlineInputBorder(),
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: UserRole.user,
+                      child: Text('Comum / Operacional (App de Leituras)'),
+                    ),
+                    DropdownMenuItem(
+                      value: UserRole.admin,
+                      child: Text('Administrador (Painel MedeJá Admin)'),
                     ),
                   ],
-                  onChanged: _isSubmitting
+                  onChanged: (_isSubmitting || widget.isCurrentSessionUser)
                       ? null
                       : (value) {
+                          if (value == null) return;
                           setState(() {
-                            _selectedApartmentId =
-                                (value == null || value == _noApartmentSentinel)
-                                ? null
-                                : value;
+                            _selectedRole = value;
                           });
                         },
                 ),
+                if (_selectedRole.isAdmin && !widget.user.isAdmin) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: colorScheme.tertiaryContainer.withValues(
+                        alpha: 0.6,
+                      ),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'Atenção: ao salvar como Administrador, esta conta passará a ter acesso completo ao painel MedeJá Admin.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onTertiaryContainer,
+                      ),
+                    ),
+                  ),
+                ],
+                if (apartments != null && apartments.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    key: ValueKey(dropdownValue),
+                    initialValue: dropdownValue,
+                    isExpanded: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Vínculo de unidade (opcional)',
+                      prefixIcon: Icon(Icons.home_work_outlined),
+                      border: OutlineInputBorder(),
+                    ),
+                    items: [
+                      const DropdownMenuItem<String>(
+                        value: _noApartmentSentinel,
+                        child: Text('Acesso geral ao condomínio (padrão)'),
+                      ),
+                      ...apartments.map(
+                        (item) => DropdownMenuItem<String>(
+                          value: item.apartment.id,
+                          child: Text(
+                            '${item.block.name} • Apto ${item.apartment.name}',
+                          ),
+                        ),
+                      ),
+                    ],
+                    onChanged: _isSubmitting
+                        ? null
+                        : (value) {
+                            setState(() {
+                              _selectedApartmentId =
+                                  (value == null ||
+                                      value == _noApartmentSentinel)
+                                  ? null
+                                  : value;
+                            });
+                          },
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       ),

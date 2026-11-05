@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +11,10 @@ import 'package:mede_ja_admin/features/admin/admin_model.dart';
 import 'package:mede_ja_admin/features/admin/admin_repo.dart';
 import 'package:mede_ja_admin/features/apartamentos/apartamento_repo.dart';
 import 'package:mede_ja_admin/features/apartamentos/apartamentos_model.dart';
+import 'package:mede_ja_admin/features/auth/account_role_datasrc.dart';
+import 'package:mede_ja_admin/features/auth/auth_controller.dart';
+import 'package:mede_ja_admin/features/auth/auth_repo.dart';
+import 'package:mede_ja_admin/features/auth/login_page.dart';
 import 'package:mede_ja_admin/features/blocos/bloco_model.dart';
 import 'package:mede_ja_admin/features/blocos/bloco_repo.dart';
 import 'package:mede_ja_admin/features/condominos/condominio_model.dart';
@@ -188,8 +195,7 @@ class _InMemoryUserRepo implements UserRepository {
     String administratorId,
     String condominiumId,
     String userId,
-  ) async =>
-      usersByCondo[condominiumId]!.firstWhere((u) => u.id == userId);
+  ) async => usersByCondo[condominiumId]!.firstWhere((u) => u.id == userId);
 
   @override
   Future<String> createUser(
@@ -233,6 +239,49 @@ class _InMemoryUserRepo implements UserRepository {
   }
 }
 
+class _InMemoryAccountRoleRepo implements AccountRoleRepository {
+  final Map<String, AccountRoleProfile> profilesByUid;
+
+  _InMemoryAccountRoleRepo([Map<String, AccountRoleProfile>? initial])
+    : profilesByUid = Map.of(initial ?? const {});
+
+  @override
+  Future<AccountRoleProfile?> getAccountRole(String uid) async =>
+      profilesByUid[uid];
+
+  @override
+  Future<List<AccountRoleProfile>> getAllAccountRoles() async =>
+      profilesByUid.values.toList();
+
+  @override
+  Future<void> saveAccountRole(
+    AccountRoleProfile profile, {
+    bool isNew = false,
+  }) async {
+    profilesByUid[profile.uid] = profile;
+  }
+
+  @override
+  Future<AccountRoleProfile> resolveOrBootstrapSessionProfile({
+    required String uid,
+    required String email,
+    String? displayName,
+  }) async {
+    final existing = profilesByUid[uid];
+    if (existing != null) return existing;
+
+    final bootstrapped = AccountRoleProfile(
+      uid: uid,
+      name: displayName ?? email.split('@').first,
+      email: email,
+      role: UserRole.admin,
+      active: true,
+    );
+    profilesByUid[uid] = bootstrapped;
+    return bootstrapped;
+  }
+}
+
 class _FakeUserAuthProvisioner implements UserAuthProvisioner {
   int _seq = 0;
   final List<String> provisionedEmails = [];
@@ -253,6 +302,76 @@ class _FakeUserAuthProvisioner implements UserAuthProvisioner {
   @override
   Future<void> sendPasswordResetEmail(String email) async {
     resetEmailsSent.add(email);
+  }
+}
+
+class _FakeFirebaseUser implements User {
+  @override
+  final String uid;
+  @override
+  final String? email;
+  @override
+  final String? displayName;
+
+  _FakeFirebaseUser({
+    required this.uid,
+    required this.email,
+    this.displayName,
+  });
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeUserCredential implements UserCredential {
+  @override
+  final User? user;
+
+  _FakeUserCredential(this.user);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeAuthRepository implements AuthRepository {
+  final Map<String, _FakeFirebaseUser> registeredUsersByEmail;
+  final StreamController<User?> _authController =
+      StreamController<User?>.broadcast();
+  User? _current;
+  int signOutCalls = 0;
+
+  _FakeAuthRepository(this.registeredUsersByEmail);
+
+  @override
+  User? get currentUser => _current;
+
+  @override
+  Stream<User?> get authStateChanges => _authController.stream;
+
+  @override
+  Future<UserCredential> signIn({
+    required String email,
+    required String password,
+  }) async {
+    final normalized = email.trim().toLowerCase();
+    final found = registeredUsersByEmail[normalized];
+    if (found == null) {
+      throw Exception('invalid-credential');
+    }
+    _current = found;
+    _authController.add(_current);
+    return _FakeUserCredential(found);
+  }
+
+  @override
+  Future<void> signOut() async {
+    signOutCalls++;
+    _current = null;
+    _authController.add(null);
+  }
+
+  void dispose() {
+    _authController.close();
   }
 }
 
@@ -288,7 +407,7 @@ GoRouter _buildUsersRouter(String initialLocation) {
 
 void main() {
   test(
-    'generateTemporaryPassword gera senha forte sem caracteres ambíguos e UserModel não serializa senha',
+    'generateTemporaryPassword gera senha forte e UserModel serializa role/isAdmin sem expor senha',
     () {
       for (var i = 0; i < 25; i++) {
         final password = generateTemporaryPassword(length: 10);
@@ -300,14 +419,18 @@ void main() {
         expect(password.contains(RegExp(r'[2-9]')), isTrue);
       }
 
-      const model = UserModel(
-        id: 'uid-1',
-        name: 'Operador Teste',
-        email: 'operador@teste.com',
+      const commonUser = UserModel(
+        id: 'uid-zelador',
+        name: 'Zelador 1',
+        email: 'zelador1@condo.com',
         active: true,
         mustChangePassword: true,
       );
-      final map = model.toMap();
+      final map = commonUser.toMap();
+      expect(commonUser.role, UserRole.user);
+      expect(commonUser.isAdmin, isFalse);
+      expect(map['role'], 'user');
+      expect(map['isAdmin'], isFalse);
       expect(map['mustChangePassword'], isTrue);
       expect(map.containsKey('password'), isFalse);
       expect(map.containsKey('temporaryPassword'), isFalse);
@@ -315,7 +438,111 @@ void main() {
   );
 
   testWidgets(
-    'NewCondominiumUserPage cria conta com UID do Auth, exibe credenciais únicas e alerta quando já existe 1 conta',
+    'LoginPage bloqueia conta Comum (zelador1) e faz signOut imediato, permitindo apenas Administrador',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(1280, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final fakeAuthRepo = _FakeAuthRepository({
+        'zelador1@condo.com': _FakeFirebaseUser(
+          uid: 'uid-zelador-1',
+          email: 'zelador1@condo.com',
+          displayName: 'Zelador 1',
+        ),
+        'admin@medeja.com': _FakeFirebaseUser(
+          uid: 'uid-admin-1',
+          email: 'admin@medeja.com',
+          displayName: 'Admin MedeJá',
+        ),
+      });
+      addTearDown(fakeAuthRepo.dispose);
+
+      final fakeRoleRepo = _InMemoryAccountRoleRepo({
+        'uid-zelador-1': const AccountRoleProfile(
+          uid: 'uid-zelador-1',
+          name: 'Zelador 1',
+          email: 'zelador1@condo.com',
+          role: UserRole.user,
+          active: true,
+          administratorId: 'adm-1',
+          condominiumId: 'condo-1',
+        ),
+        'uid-admin-1': const AccountRoleProfile(
+          uid: 'uid-admin-1',
+          name: 'Admin MedeJá',
+          email: 'admin@medeja.com',
+          role: UserRole.admin,
+          active: true,
+        ),
+      });
+
+      late WidgetRef capturedRef;
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            authRepositoryProvider.overrideWithValue(fakeAuthRepo),
+            accountRoleRepositoryProvider.overrideWithValue(fakeRoleRepo),
+          ],
+          child: MaterialApp(
+            home: Consumer(
+              builder: (context, ref, _) {
+                capturedRef = ref;
+                return const LoginPage();
+              },
+            ),
+          ),
+        ),
+      );
+
+      // 1. Tentativa de login com zelador1 (perfil Comum) -> deve bloquear e deslogar
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'E-mail'),
+        'zelador1@condo.com',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Senha'),
+        'Mj@8kP4xR9',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Entrar'));
+      await tester.pumpAndSettle();
+
+      expect(fakeAuthRepo.signOutCalls, 1);
+      expect(fakeAuthRepo.currentUser, isNull);
+      expect(
+        capturedRef.read(authControllerProvider).isAuthorizedAdmin,
+        isFalse,
+      );
+      expect(
+        find.textContaining('Acesso restrito a administradores'),
+        findsOneWidget,
+      );
+
+      // 2. Tentativa de login com admin@medeja.com (perfil Admin) -> deve autorizar
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'E-mail'),
+        'admin@medeja.com',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Senha'),
+        'Admin@2026!',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Entrar'));
+      await tester.pumpAndSettle();
+
+      expect(
+        capturedRef.read(authControllerProvider).isAuthorizedAdmin,
+        isTrue,
+      );
+      expect(
+        capturedRef.read(authControllerProvider).currentProfile?.role,
+        UserRole.admin,
+      );
+    },
+  );
+
+  testWidgets(
+    'NewCondominiumUserPage cria conta Comum por padrão, sincroniza account_roles e alerta ao criar 2ª conta',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(1280, 950));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -340,7 +567,10 @@ void main() {
         ],
       });
       final userRepo = _InMemoryUserRepo({});
+      final roleRepo = _InMemoryAccountRoleRepo();
       final authProvisioner = _FakeUserAuthProvisioner();
+      final fakeAuthRepo = _FakeAuthRepository({});
+      addTearDown(fakeAuthRepo.dispose);
 
       final router = _buildUsersRouter(
         AppRoutes.newCondominiumUserPath('condo-1', administratorId: 'adm-1'),
@@ -349,6 +579,8 @@ void main() {
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            authRepositoryProvider.overrideWithValue(fakeAuthRepo),
+            accountRoleRepositoryProvider.overrideWithValue(roleRepo),
             administratorRepositoryProvider.overrideWithValue(adminRepo),
             condominiumRepositoryProvider.overrideWithValue(condoRepo),
             blockRepositoryProvider.overrideWithValue(_EmptyBlockRepo()),
@@ -364,7 +596,6 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      // Condomínio sem conta inicialmente
       expect(
         find.textContaining('ainda não possui conta vinculada'),
         findsOneWidget,
@@ -387,23 +618,29 @@ void main() {
       await tester.tap(createBtn);
       await tester.pumpAndSettle();
 
-      // Modal de exibição única da senha temporária deve aparecer
       expect(find.text('Conta criada com sucesso'), findsOneWidget);
       expect(authProvisioner.provisionedEmails, ['roberto@solar.com']);
 
       final savedUsers = userRepo.usersByCondo['condo-1']!;
       expect(savedUsers.length, 1);
       expect(savedUsers.first.id, 'auth-uid-1');
+      expect(savedUsers.first.role, UserRole.user);
+      expect(savedUsers.first.isAdmin, isFalse);
       expect(savedUsers.first.mustChangePassword, isTrue);
+
+      // Também gravou em account_roles com role == UserRole.user (isAdmin == false)
+      final syncedRole = roleRepo.profilesByUid['auth-uid-1']!;
+      expect(syncedRole.role, UserRole.user);
+      expect(syncedRole.isAdmin, isFalse);
+      expect(syncedRole.condominiumId, 'condo-1');
 
       await tester.tap(find.text('Concluir'));
       await tester.pumpAndSettle();
 
-      // Navegou para a listagem de contas do condomínio exibindo o badge de 1º acesso pendente
       expect(find.text('Roberto Leiturista'), findsOneWidget);
+      expect(find.text('Comum'), findsWidgets);
       expect(find.text('1º acesso pendente'), findsWidgets);
 
-      // Ao abrir novamente "Nova conta", deve avisar que já existe 1 conta vinculada sem bloquear
       final newAccountBtn = find.ancestor(
         of: find.text('Nova conta'),
         matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
@@ -419,7 +656,7 @@ void main() {
   );
 
   testWidgets(
-    'AccountsPage destaca condomínios sem conta e envia redefinição de senha',
+    'AccountsPage lista Admins Globais e contas Comuns, destaca condomínios sem conta e envia redefinição de senha',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(1280, 950));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -456,17 +693,31 @@ void main() {
             name: 'Marina Operadora',
             email: 'marina@solar.com',
             active: true,
+            role: UserRole.user,
             mustChangePassword: true,
           ),
         ],
       });
+      final roleRepo = _InMemoryAccountRoleRepo({
+        'uid-global-admin': const AccountRoleProfile(
+          uid: 'uid-global-admin',
+          name: 'Gabriel Admin',
+          email: 'gabriel@medeja.com',
+          role: UserRole.admin,
+          active: true,
+        ),
+      });
       final authProvisioner = _FakeUserAuthProvisioner();
+      final fakeAuthRepo = _FakeAuthRepository({});
+      addTearDown(fakeAuthRepo.dispose);
 
       final router = _buildUsersRouter(AppRoutes.accounts);
 
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
+            authRepositoryProvider.overrideWithValue(fakeAuthRepo),
+            accountRoleRepositoryProvider.overrideWithValue(roleRepo),
             administratorRepositoryProvider.overrideWithValue(adminRepo),
             condominiumRepositoryProvider.overrideWithValue(condoRepo),
             blockRepositoryProvider.overrideWithValue(_EmptyBlockRepo()),
@@ -482,16 +733,17 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      // Exibe condomínio sem conta pendente e a conta já existente
       expect(
         find.text('Condomínios aguardando conta inicial (1)'),
         findsOneWidget,
       );
       expect(find.text('Condomínio Parque Verde'), findsOneWidget);
+      expect(find.text('Gabriel Admin'), findsOneWidget);
       expect(find.text('Marina Operadora'), findsOneWidget);
+      expect(find.text('1 Admin • 1 Comum'), findsOneWidget);
 
-      // Aciona envio de e-mail de redefinição de senha pelo menu da conta
-      await tester.tap(find.byTooltip('Ações da conta'));
+      // Envia redefinição de senha na conta de Marina Operadora (segundo menu de ações)
+      await tester.tap(find.byTooltip('Ações da conta').last);
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Enviar redefinição de senha'));

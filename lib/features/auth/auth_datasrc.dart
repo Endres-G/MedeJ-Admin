@@ -1,10 +1,11 @@
 import 'package:firebase_auth/firebase_auth.dart';
 
 class AuthFirebaseDataSource {
-  final FirebaseAuth _auth;
+  final FirebaseAuth? _injectedAuth;
 
-  AuthFirebaseDataSource({FirebaseAuth? auth})
-    : _auth = auth ?? FirebaseAuth.instance;
+  AuthFirebaseDataSource({FirebaseAuth? auth}) : _injectedAuth = auth;
+
+  FirebaseAuth get _auth => _injectedAuth ?? FirebaseAuth.instance;
 
   User? get firebaseUser => _auth.currentUser;
 

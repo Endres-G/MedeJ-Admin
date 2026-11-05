@@ -1207,6 +1207,13 @@ class _UserTile extends StatelessWidget {
         spacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
+          Chip(
+            label: Text(user.role.shortLabel),
+            visualDensity: VisualDensity.compact,
+            backgroundColor: user.isAdmin
+                ? colorScheme.primaryContainer
+                : colorScheme.surfaceContainerHigh,
+          ),
           if (user.mustChangePassword)
             Chip(
               label: const Text('1º acesso pendente'),

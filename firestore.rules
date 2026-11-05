@@ -1,0 +1,107 @@
+rules_version = '2';
+
+// IMPORTANTE ANTES DE PUBLICAR NO FIREBASE CONSOLE:
+// Faça login pelo menos 1 vez no MedeJá Admin com cada uma das contas
+// administrativas pré-existentes para que o sistema registre automaticamente
+// seus documentos em `account_roles/{uid}` com `role: "admin"` e `isAdmin: true`.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function hasAccountRoleDoc() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/account_roles/$(request.auth.uid));
+    }
+
+    function accountRoleData() {
+      return get(/databases/$(database)/documents/account_roles/$(request.auth.uid)).data;
+    }
+
+    function isActiveAccount() {
+      return hasAccountRoleDoc() && accountRoleData().active == true;
+    }
+
+    function isAdmin() {
+      return isActiveAccount() &&
+        (accountRoleData().role == 'admin' || accountRoleData().isAdmin == true);
+    }
+
+    function isScopedCondominiumUser(administratorId, condominiumId) {
+      return isActiveAccount() &&
+        accountRoleData().administratorId == administratorId &&
+        accountRoleData().condominiumId == condominiumId;
+    }
+
+    // Tabela raiz de controle de perfis (vinculada 1:1 ao UID do Firebase Auth)
+    match /account_roles/{uid} {
+      // O próprio usuário pode ler seu perfil; Admins podem ler todos.
+      allow get: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+
+      // Apenas Admins criam, editam perfis (role/isAdmin) ou excluem contas.
+      allow create, delete: if isAdmin();
+
+      // O próprio usuário comum só pode marcar `mustChangePassword = false`
+      // após redefinir sua senha no 1º acesso pelo app mobile, sem alterar `role` ou `isAdmin`.
+      allow update: if isAdmin() || (
+        isSignedIn() &&
+        request.auth.uid == uid &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.isAdmin == resource.data.isAdmin &&
+        request.resource.data.active == resource.data.active &&
+        request.resource.data.administratorId == resource.data.administratorId &&
+        request.resource.data.condominiumId == resource.data.condominiumId &&
+        request.resource.data.mustChangePassword == false
+      );
+    }
+
+    // Hierarquia principal de Administradoras e Condomínios
+    match /administrators/{administratorId} {
+      allow read, write: if isAdmin();
+
+      match /condominiums/{condominiumId} {
+        allow read: if isAdmin() || isScopedCondominiumUser(administratorId, condominiumId);
+        allow write: if isAdmin();
+
+        match /blocks/{blockId} {
+          allow read: if isAdmin() || isScopedCondominiumUser(administratorId, condominiumId);
+          allow write: if isAdmin();
+
+          match /apartments/{apartmentId} {
+            allow read: if isAdmin() || isScopedCondominiumUser(administratorId, condominiumId);
+            allow write: if isAdmin();
+
+            // Leituras registradas pelo operador mobile vinculado ao condomínio
+            match /readings/{readingId} {
+              allow read, create, update: if isAdmin() ||
+                isScopedCondominiumUser(administratorId, condominiumId);
+              allow delete: if isAdmin();
+            }
+          }
+        }
+
+        match /users/{userId} {
+          allow get: if isAdmin() || (
+            isScopedCondominiumUser(administratorId, condominiumId) &&
+            request.auth.uid == userId
+          );
+          allow list, create, delete: if isAdmin();
+
+          // Usuário comum só pode concluir o 1º acesso (`mustChangePassword: false`) no próprio doc
+          allow update: if isAdmin() || (
+            isScopedCondominiumUser(administratorId, condominiumId) &&
+            request.auth.uid == userId &&
+            request.resource.data.role == resource.data.role &&
+            request.resource.data.isAdmin == resource.data.isAdmin &&
+            request.resource.data.active == resource.data.active &&
+            request.resource.data.mustChangePassword == false
+          );
+        }
+      }
+    }
+  }
+}

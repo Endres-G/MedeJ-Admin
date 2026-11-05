@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mede_ja_admin/app/routes/app_routes.dart';
+import 'package:mede_ja_admin/features/auth/auth_controller.dart';
 import 'package:mede_ja_admin/features/condominos/condominium_details_controller.dart';
 import 'package:mede_ja_admin/features/condominos/structure_dialogs.dart';
 import 'package:mede_ja_admin/features/contas/accounts_controller.dart';
@@ -43,6 +44,7 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
   @override
   Widget build(BuildContext context) {
     final condoState = ref.watch(condominiumDetailsControllerProvider(_scope));
+    final currentSessionUid = ref.watch(authControllerProvider).currentProfile?.uid;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -108,6 +110,8 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
             'Ativo' => user.active,
             'Inativo' => !user.active,
             'PrimeiroAcesso' => user.mustChangePassword,
+            'Admin' => user.isAdmin,
+            'Comum' => !user.isAdmin,
             _ => true,
           };
 
@@ -132,7 +136,12 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
               else ...[
                 _buildFilters(context, isSmall),
                 const SizedBox(height: 16),
-                _buildUsersList(context, condoState, filteredUsers),
+                _buildUsersList(
+                  context,
+                  condoState,
+                  filteredUsers,
+                  currentSessionUid,
+                ),
               ],
             ],
           ),
@@ -272,7 +281,7 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
               child: _SummaryCard(
                 title: 'Contas ativas',
                 value: '${condoState.activeUsers}',
-                subtitle: 'Com acesso habilitado ao app',
+                subtitle: 'Com acesso habilitado',
                 icon: Icons.verified_user_outlined,
               ),
             ),
@@ -321,8 +330,8 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
           Expanded(
             child: Text(
               hasSingle
-                  ? '1 conta operacional vinculada (configuração padrão recomendada por condomínio). Você ainda pode adicionar outras contas se necessário.'
-                  : 'Este condomínio possui ${condoState.totalUsers} contas vinculadas. O comum é 1 conta por condomínio, mantendo suporte a múltiplos operadores.',
+                  ? '1 conta vinculada (configuração padrão recomendada por condomínio). Contas com perfil Comum acessam apenas o aplicativo mobile MedeJá.'
+                  : 'Este condomínio possui ${condoState.totalUsers} contas vinculadas. Contas com perfil Comum acessam apenas o aplicativo mobile MedeJá.',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ),
@@ -415,13 +424,15 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
       key: ValueKey(_statusFilter),
       initialValue: _statusFilter,
       decoration: const InputDecoration(
-        labelText: 'Status',
+        labelText: 'Filtro / Perfil',
         border: OutlineInputBorder(),
       ),
       items: const [
-        DropdownMenuItem(value: 'Todos', child: Text('Todos')),
-        DropdownMenuItem(value: 'Ativo', child: Text('Ativas')),
-        DropdownMenuItem(value: 'Inativo', child: Text('Inativas')),
+        DropdownMenuItem(value: 'Todos', child: Text('Todas as contas')),
+        DropdownMenuItem(value: 'Comum', child: Text('Perfil: Comum (App)')),
+        DropdownMenuItem(value: 'Admin', child: Text('Perfil: Admin')),
+        DropdownMenuItem(value: 'Ativo', child: Text('Status: Ativas')),
+        DropdownMenuItem(value: 'Inativo', child: Text('Status: Inativas')),
         DropdownMenuItem(
           value: 'PrimeiroAcesso',
           child: Text('1º acesso pendente'),
@@ -445,7 +456,7 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
       children: [
         Expanded(child: searchField),
         const SizedBox(width: 16),
-        SizedBox(width: 240, child: statusField),
+        SizedBox(width: 250, child: statusField),
       ],
     );
   }
@@ -454,6 +465,7 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
     BuildContext context,
     CondominiumDetailsState condoState,
     List<UserModel> users,
+    String? currentSessionUid,
   ) {
     final apartmentsById = <String, ApartmentWithBlockItem>{
       for (final item in condoState.allApartments) item.apartment.id: item,
@@ -476,15 +488,18 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
                 final linkedApartment = user.apartmentId != null
                     ? apartmentsById[user.apartmentId!]
                     : null;
+                final isSelf =
+                    currentSessionUid != null && currentSessionUid == user.id;
 
                 return Column(
                   children: [
                     _CondominiumUserTile(
                       user: user,
                       linkedApartment: linkedApartment,
+                      isSelfAccount: isSelf,
                       disabled: condoState.isSaving,
                       onCopyEmail: () => _copyEmail(user.email),
-                      onEdit: () => _openEditUser(condoState, user),
+                      onEdit: () => _openEditUser(condoState, user, isSelf),
                       onSendPasswordReset: () => _handlePasswordReset(user),
                       onToggleActive: () => _handleToggleUser(user),
                     ),
@@ -507,14 +522,17 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
   Future<void> _openEditUser(
     CondominiumDetailsState condoState,
     UserModel user,
+    bool isSelfAccount,
   ) async {
     await showEditUserDialog(
       context: context,
       user: user,
+      isCurrentSessionUser: isSelfAccount,
       availableApartments: condoState.allApartments,
       onSubmit:
           ({
             required String name,
+            required UserRole role,
             String? apartmentId,
             bool clearApartmentId = false,
           }) async {
@@ -524,6 +542,7 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
             final ok = await controller.updateCondominiumUser(
               user: user,
               name: name,
+              role: role,
               apartmentId: apartmentId,
               clearApartmentId: clearApartmentId,
             );
@@ -533,7 +552,7 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
               ref.invalidate(accountsControllerProvider);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Dados da conta atualizados com sucesso.'),
+                  content: Text('Dados e permissões atualizados com sucesso.'),
                 ),
               );
             } else {
@@ -624,6 +643,7 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
 class _CondominiumUserTile extends StatelessWidget {
   final UserModel user;
   final ApartmentWithBlockItem? linkedApartment;
+  final bool isSelfAccount;
   final bool disabled;
   final VoidCallback onCopyEmail;
   final VoidCallback onEdit;
@@ -633,6 +653,7 @@ class _CondominiumUserTile extends StatelessWidget {
   const _CondominiumUserTile({
     required this.user,
     required this.linkedApartment,
+    required this.isSelfAccount,
     required this.disabled,
     required this.onCopyEmail,
     required this.onEdit,
@@ -730,6 +751,22 @@ class _CondominiumUserTile extends StatelessWidget {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
+              Chip(
+                avatar: Icon(
+                  user.isAdmin
+                      ? Icons.admin_panel_settings_outlined
+                      : Icons.smartphone_outlined,
+                  size: 16,
+                  color: user.isAdmin
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.onSurfaceVariant,
+                ),
+                label: Text(user.role.shortLabel),
+                visualDensity: VisualDensity.compact,
+                backgroundColor: user.isAdmin
+                    ? colorScheme.primaryContainer
+                    : colorScheme.surfaceContainerHigh,
+              ),
               if (user.mustChangePassword)
                 Tooltip(
                   message:
@@ -774,7 +811,7 @@ class _CondominiumUserTile extends StatelessWidget {
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.edit_outlined),
-                      title: Text('Editar dados'),
+                      title: Text('Editar dados e perfil'),
                     ),
                   ),
                   const PopupMenuItem(
@@ -785,20 +822,21 @@ class _CondominiumUserTile extends StatelessWidget {
                       title: Text('Enviar redefinição de senha'),
                     ),
                   ),
-                  PopupMenuItem(
-                    value: 'toggle_active',
-                    child: ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(
-                        user.active
-                            ? Icons.person_off_outlined
-                            : Icons.person_outline,
-                      ),
-                      title: Text(
-                        user.active ? 'Desativar conta' : 'Reativar conta',
+                  if (!isSelfAccount)
+                    PopupMenuItem(
+                      value: 'toggle_active',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          user.active
+                              ? Icons.person_off_outlined
+                              : Icons.person_outline,
+                        ),
+                        title: Text(
+                          user.active ? 'Desativar conta' : 'Reativar conta',
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ],

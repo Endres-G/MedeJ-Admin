@@ -77,7 +77,10 @@ class ProvisionedUserCredentials {
   String buildShareableSummary() {
     final buffer = StringBuffer()
       ..writeln('Acesso MedeJá — Primeiro Acesso')
-      ..writeln('Condomínio: $condominiumName');
+      ..writeln('Perfil: ${user.role.label}');
+    if (condominiumId.trim().isNotEmpty) {
+      buffer.writeln('Condomínio: $condominiumName');
+    }
     if (administratorName != null && administratorName!.trim().isNotEmpty) {
       buffer.writeln('Administradora: ${administratorName!.trim()}');
     }
@@ -87,8 +90,11 @@ class ProvisionedUserCredentials {
       ..writeln('Senha temporária: $temporaryPassword')
       ..writeln()
       ..write(
-        'Importante: utilize esta senha temporária no primeiro login pelo '
-        'aplicativo MedeJá e defina uma nova senha pessoal em seguida.',
+        user.isAdmin
+            ? 'Importante: esta conta possui acesso administrativo ao painel MedeJá Admin. '
+                  'Altere ou redefina sua senha após o primeiro acesso.'
+            : 'Importante: esta conta é de perfil Comum/Operacional (exclusiva do aplicativo mobile MedeJá). '
+                  'Utilize esta senha temporária no primeiro login pelo app e defina uma nova senha pessoal em seguida.',
       );
     return buffer.toString();
   }

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/legacy.dart';
 import 'package:mede_ja_admin/features/admin/admin_details_controller.dart';
 import 'package:mede_ja_admin/features/admin/admin_model.dart';
 import 'package:mede_ja_admin/features/admin/admin_repo.dart';
+import 'package:mede_ja_admin/features/auth/account_role_datasrc.dart';
 import 'package:mede_ja_admin/features/condominos/condominio_model.dart';
 import 'package:mede_ja_admin/features/condominos/condominio_repo.dart';
 import 'package:mede_ja_admin/features/condominos/condominium_details_controller.dart';
@@ -17,6 +18,7 @@ final accountsControllerProvider =
         condominiumRepository: ref.watch(condominiumRepositoryProvider),
         userRepository: ref.watch(userRepositoryProvider),
         userAuthProvisioner: ref.watch(userAuthProvisionerProvider),
+        accountRoleRepository: ref.watch(accountRoleRepositoryProvider),
         onCachesInvalidated: (adminId, condoId) {
           if (adminId.isNotEmpty) {
             ref.invalidate(adminDetailsControllerProvider(adminId));
@@ -75,16 +77,19 @@ class CondominiumAccountGroup {
 
 class AccountOverviewItem {
   final UserModel user;
-  final AdministratorModel administrator;
-  final CondominiumModel condominium;
+  final AdministratorModel? administrator;
+  final CondominiumModel? condominium;
   final int condominiumTotalAccounts;
 
   const AccountOverviewItem({
     required this.user,
-    required this.administrator,
-    required this.condominium,
-    required this.condominiumTotalAccounts,
+    this.administrator,
+    this.condominium,
+    this.condominiumTotalAccounts = 0,
   });
+
+  bool get isPlatformStandaloneAccount =>
+      condominium == null || administrator == null;
 }
 
 class AccountsState {
@@ -92,6 +97,7 @@ class AccountsState {
   final bool isSaving;
   final List<AdministratorModel> administrators;
   final List<CondominiumAccountGroup> condominiumGroups;
+  final List<AccountRoleProfile> standalonePlatformAccounts;
   final String? error;
   final String? actionError;
 
@@ -100,12 +106,30 @@ class AccountsState {
     this.isSaving = false,
     this.administrators = const [],
     this.condominiumGroups = const [],
+    this.standalonePlatformAccounts = const [],
     this.error,
     this.actionError,
   });
 
   List<AccountOverviewItem> get allAccounts {
     final items = <AccountOverviewItem>[];
+
+    for (final standalone in standalonePlatformAccounts) {
+      items.add(
+        AccountOverviewItem(
+          user: UserModel(
+            id: standalone.uid,
+            name: standalone.name,
+            email: standalone.email,
+            active: standalone.active,
+            role: standalone.role,
+            mustChangePassword: standalone.mustChangePassword,
+            createdAt: standalone.createdAt,
+          ),
+        ),
+      );
+    }
+
     for (final group in condominiumGroups) {
       for (final user in group.users) {
         items.add(
@@ -118,10 +142,15 @@ class AccountsState {
         );
       }
     }
+
     items.sort((a, b) {
-      final condoCmp = a.condominium.name.toLowerCase().compareTo(
-        b.condominium.name.toLowerCase(),
-      );
+      // Exibe Administradores globais primeiro, depois agrupa por condomínio e nome.
+      if (a.isPlatformStandaloneAccount != b.isPlatformStandaloneAccount) {
+        return a.isPlatformStandaloneAccount ? -1 : 1;
+      }
+      final aCondo = a.condominium?.name.toLowerCase() ?? '';
+      final bCondo = b.condominium?.name.toLowerCase() ?? '';
+      final condoCmp = aCondo.compareTo(bCondo);
       if (condoCmp != 0) return condoCmp;
       return a.user.name.toLowerCase().compareTo(b.user.name.toLowerCase());
     });
@@ -129,18 +158,23 @@ class AccountsState {
   }
 
   int get totalAccounts =>
+      standalonePlatformAccounts.length +
       condominiumGroups.fold(0, (sum, group) => sum + group.totalUsers);
 
   int get activeAccounts =>
+      standalonePlatformAccounts.where((a) => a.active).length +
       condominiumGroups.fold(0, (sum, group) => sum + group.activeUsers);
 
   int get inactiveAccounts => totalAccounts - activeAccounts;
 
-  int get pendingPasswordChangeAccounts => condominiumGroups.fold(
-    0,
-    (sum, group) =>
-        sum + group.users.where((u) => u.mustChangePassword).length,
-  );
+  int get adminAccountsCount =>
+      allAccounts.where((item) => item.user.isAdmin).length;
+
+  int get commonAccountsCount =>
+      allAccounts.where((item) => !item.user.isAdmin).length;
+
+  int get pendingPasswordChangeAccounts =>
+      allAccounts.where((item) => item.user.mustChangePassword).length;
 
   List<CondominiumAccountGroup> get condominiumsWithoutAccount =>
       condominiumGroups.where((group) => !group.hasAccount).toList();
@@ -169,6 +203,7 @@ class AccountsState {
     bool? isSaving,
     List<AdministratorModel>? administrators,
     List<CondominiumAccountGroup>? condominiumGroups,
+    List<AccountRoleProfile>? standalonePlatformAccounts,
     String? error,
     bool clearError = false,
     String? actionError,
@@ -179,6 +214,8 @@ class AccountsState {
       isSaving: isSaving ?? this.isSaving,
       administrators: administrators ?? this.administrators,
       condominiumGroups: condominiumGroups ?? this.condominiumGroups,
+      standalonePlatformAccounts:
+          standalonePlatformAccounts ?? this.standalonePlatformAccounts,
       error: clearError ? null : (error ?? this.error),
       actionError: clearActionError ? null : (actionError ?? this.actionError),
     );
@@ -190,6 +227,7 @@ class AccountsController extends StateNotifier<AccountsState> {
   final CondominiumRepository _condominiumRepository;
   final UserRepository _userRepository;
   final UserAuthProvisioner _userAuthProvisioner;
+  final AccountRoleRepository? _accountRoleRepository;
   final void Function(String administratorId, String condominiumId)?
   _onCachesInvalidated;
 
@@ -198,6 +236,7 @@ class AccountsController extends StateNotifier<AccountsState> {
     required CondominiumRepository condominiumRepository,
     required UserRepository userRepository,
     UserAuthProvisioner? userAuthProvisioner,
+    AccountRoleRepository? accountRoleRepository,
     void Function(String administratorId, String condominiumId)?
     onCachesInvalidated,
   }) : _adminRepository = adminRepository,
@@ -205,6 +244,7 @@ class AccountsController extends StateNotifier<AccountsState> {
        _userRepository = userRepository,
        _userAuthProvisioner =
            userAuthProvisioner ?? FirebaseUserAuthProvisioner(),
+       _accountRoleRepository = accountRoleRepository,
        _onCachesInvalidated = onCachesInvalidated,
        super(const AccountsState());
 
@@ -217,9 +257,21 @@ class AccountsController extends StateNotifier<AccountsState> {
     );
 
     try {
-      final rawAdmins = await _adminRepository.getAdministrators();
+      final rawAdminsFuture = _adminRepository.getAdministrators();
+      final rawRolesFuture = _loadAllAccountRolesSafely();
+
+      final rawAdmins = await rawAdminsFuture;
+      final allAccountRoles = await rawRolesFuture;
+
+      final rolesByUid = <String, AccountRoleProfile>{
+        for (final profile in allAccountRoles) profile.uid: profile,
+      };
+
       final sortedAdmins = List<AdministratorModel>.of(rawAdmins)
         ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+      final condoUserUids = <String>{};
+      final condoUserEmails = <String>{};
 
       final nestedGroups = await Future.wait(
         sortedAdmins.map((admin) async {
@@ -236,15 +288,25 @@ class AccountsController extends StateNotifier<AccountsState> {
                 admin.id,
                 condo.id,
               );
-              final sortedUsers = List<UserModel>.of(rawUsers)
+              final enrichedUsers = rawUsers.map((u) {
+                condoUserUids.add(u.id);
+                if (u.email.trim().isNotEmpty) {
+                  condoUserEmails.add(u.email.trim().toLowerCase());
+                }
+                final syncedRole = rolesByUid[u.id]?.role;
+                return syncedRole != null && syncedRole != u.role
+                    ? u.copyWith(role: syncedRole)
+                    : u;
+              }).toList()
                 ..sort(
                   (a, b) =>
                       a.name.toLowerCase().compareTo(b.name.toLowerCase()),
                 );
+
               return CondominiumAccountGroup(
                 administrator: admin,
                 condominium: condo,
-                users: sortedUsers,
+                users: enrichedUsers,
               );
             }),
           );
@@ -258,12 +320,23 @@ class AccountsController extends StateNotifier<AccountsState> {
           ),
         );
 
+      final standaloneAccounts = allAccountRoles
+          .where(
+            (profile) =>
+                !profile.isLinkedToCondominium &&
+                !condoUserUids.contains(profile.uid) &&
+                !condoUserEmails.contains(profile.email.trim().toLowerCase()),
+          )
+          .toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
       if (!mounted) return;
 
       state = state.copyWith(
         isLoading: false,
         administrators: sortedAdmins,
         condominiumGroups: allGroups,
+        standalonePlatformAccounts: standaloneAccounts,
         clearError: true,
       );
     } catch (e) {
@@ -275,19 +348,130 @@ class AccountsController extends StateNotifier<AccountsState> {
     }
   }
 
+  Future<List<AccountRoleProfile>> _loadAllAccountRolesSafely() async {
+    final repo = _accountRoleRepository;
+    if (repo == null) return const [];
+    try {
+      return await repo.getAllAccountRoles();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   bool hasAccountWithEmail(String email, {String? ignoreUserId}) {
     final normalized = email.trim().toLowerCase();
     if (normalized.isEmpty) return false;
 
-    for (final group in state.condominiumGroups) {
-      for (final user in group.users) {
-        if (user.id != ignoreUserId &&
-            user.email.trim().toLowerCase() == normalized) {
-          return true;
-        }
+    for (final item in state.allAccounts) {
+      if (item.user.id != ignoreUserId &&
+          item.user.email.trim().toLowerCase() == normalized) {
+        return true;
       }
     }
     return false;
+  }
+
+  Future<ProvisionedUserCredentials?> provisionPlatformAdminAccount({
+    required String name,
+    required String email,
+    required String temporaryPassword,
+    bool active = true,
+  }) async {
+    final roleRepo = _accountRoleRepository;
+    if (roleRepo == null) {
+      state = state.copyWith(
+        actionError: 'Repositório de perfis indisponível.',
+      );
+      return null;
+    }
+
+    final trimmedName = name.trim();
+    if (trimmedName.length < 3) {
+      state = state.copyWith(
+        actionError: 'Informe o nome completo (mínimo de 3 caracteres).',
+      );
+      return null;
+    }
+
+    final normalizedEmail = email.trim().toLowerCase();
+    final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (!emailRegex.hasMatch(normalizedEmail)) {
+      state = state.copyWith(actionError: 'Informe um e-mail válido.');
+      return null;
+    }
+
+    if (hasAccountWithEmail(normalizedEmail)) {
+      state = state.copyWith(
+        actionError: 'Já existe uma conta cadastrada com este e-mail.',
+      );
+      return null;
+    }
+
+    final passwordValidation = validateTemporaryPassword(temporaryPassword);
+    if (passwordValidation != null) {
+      state = state.copyWith(actionError: passwordValidation);
+      return null;
+    }
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      final persistedProfile = await _userAuthProvisioner
+          .provisionAndPersist<AccountRoleProfile>(
+            name: trimmedName,
+            email: normalizedEmail,
+            temporaryPassword: temporaryPassword,
+            persistUser: (authUid) async {
+              final profile = AccountRoleProfile(
+                uid: authUid,
+                name: trimmedName,
+                email: normalizedEmail,
+                role: UserRole.admin,
+                active: active,
+                mustChangePassword: true,
+                createdAt: DateTime.now(),
+              );
+              await roleRepo.saveAccountRole(profile, isNew: true);
+              return profile;
+            },
+          );
+
+      final updatedStandalone = [
+        ...state.standalonePlatformAccounts,
+        persistedProfile,
+      ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+      final credentials = ProvisionedUserCredentials(
+        user: UserModel(
+          id: persistedProfile.uid,
+          name: persistedProfile.name,
+          email: persistedProfile.email,
+          active: persistedProfile.active,
+          role: UserRole.admin,
+          mustChangePassword: true,
+          createdAt: persistedProfile.createdAt,
+        ),
+        temporaryPassword: temporaryPassword,
+        condominiumId: '',
+        condominiumName: 'Painel Administrativo MedeJá (Global)',
+      );
+
+      if (!mounted) return credentials;
+
+      state = state.copyWith(
+        isSaving: false,
+        standalonePlatformAccounts: updatedStandalone,
+        clearActionError: true,
+      );
+      return credentials;
+    } catch (e) {
+      if (!mounted) return null;
+      state = state.copyWith(
+        isSaving: false,
+        actionError: formatAuthAndFirestoreError(e),
+      );
+      return null;
+    }
   }
 
   Future<ProvisionedUserCredentials?> provisionAccount({
@@ -296,6 +480,7 @@ class AccountsController extends StateNotifier<AccountsState> {
     required String name,
     required String email,
     required String temporaryPassword,
+    UserRole role = UserRole.user,
     bool active = true,
   }) async {
     final group = state.findGroup(administratorId, condominiumId);
@@ -349,6 +534,7 @@ class AccountsController extends StateNotifier<AccountsState> {
                 name: trimmedName,
                 email: normalizedEmail,
                 active: active,
+                role: role,
                 mustChangePassword: true,
               );
               await _userRepository.saveUserWithId(
@@ -356,6 +542,19 @@ class AccountsController extends StateNotifier<AccountsState> {
                 condominiumId,
                 authUid,
                 modelToSave,
+              );
+              await _accountRoleRepository?.saveAccountRole(
+                AccountRoleProfile(
+                  uid: authUid,
+                  name: trimmedName,
+                  email: normalizedEmail,
+                  role: role,
+                  active: active,
+                  mustChangePassword: true,
+                  administratorId: administratorId,
+                  condominiumId: condominiumId,
+                ),
+                isNew: true,
               );
               return modelToSave.copyWith(createdAt: DateTime.now());
             },
@@ -400,9 +599,10 @@ class AccountsController extends StateNotifier<AccountsState> {
     }
   }
 
-  Future<bool> updateAccountName({
+  Future<bool> updateAccount({
     required AccountOverviewItem item,
     required String name,
+    UserRole? role,
   }) async {
     final trimmedName = name.trim();
     if (trimmedName.length < 3) {
@@ -412,19 +612,62 @@ class AccountsController extends StateNotifier<AccountsState> {
       return false;
     }
 
-    final updatedUser = item.user.copyWith(name: trimmedName);
+    final effectiveRole = role ?? item.user.role;
     state = state.copyWith(isSaving: true, clearActionError: true);
 
     try {
-      await _userRepository.updateUser(
-        item.administrator.id,
-        item.condominium.id,
-        updatedUser,
+      if (item.isPlatformStandaloneAccount) {
+        final roleRepo = _accountRoleRepository;
+        if (roleRepo == null) return false;
+        final updatedProfile = AccountRoleProfile(
+          uid: item.user.id,
+          name: trimmedName,
+          email: item.user.email,
+          role: effectiveRole,
+          active: item.user.active,
+          mustChangePassword: item.user.mustChangePassword,
+          createdAt: item.user.createdAt,
+        );
+        await roleRepo.saveAccountRole(updatedProfile);
+
+        final updatedStandalone = state.standalonePlatformAccounts
+            .map((p) => p.uid == item.user.id ? updatedProfile : p)
+            .toList()
+          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+        if (!mounted) return true;
+        state = state.copyWith(
+          isSaving: false,
+          standalonePlatformAccounts: updatedStandalone,
+          clearActionError: true,
+        );
+        return true;
+      }
+
+      final adminId = item.administrator!.id;
+      final condoId = item.condominium!.id;
+      final updatedUser = item.user.copyWith(
+        name: trimmedName,
+        role: effectiveRole,
+      );
+
+      await _userRepository.updateUser(adminId, condoId, updatedUser);
+      await _accountRoleRepository?.saveAccountRole(
+        AccountRoleProfile(
+          uid: updatedUser.id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          active: updatedUser.active,
+          mustChangePassword: updatedUser.mustChangePassword,
+          administratorId: adminId,
+          condominiumId: condoId,
+        ),
       );
 
       final updatedGroups = state.condominiumGroups.map((group) {
-        if (group.administrator.id != item.administrator.id ||
-            group.condominium.id != item.condominium.id) {
+        if (group.administrator.id != adminId ||
+            group.condominium.id != condoId) {
           return group;
         }
         final updatedUsers = group.users
@@ -434,7 +677,7 @@ class AccountsController extends StateNotifier<AccountsState> {
         return group.copyWith(users: updatedUsers);
       }).toList();
 
-      _onCachesInvalidated?.call(item.administrator.id, item.condominium.id);
+      _onCachesInvalidated?.call(adminId, condoId);
 
       if (!mounted) return true;
 
@@ -455,19 +698,58 @@ class AccountsController extends StateNotifier<AccountsState> {
   }
 
   Future<bool> toggleAccountActive(AccountOverviewItem item) async {
-    final updatedUser = item.user.copyWith(active: !item.user.active);
+    final nextActive = !item.user.active;
     state = state.copyWith(isSaving: true, clearActionError: true);
 
     try {
-      await _userRepository.updateUser(
-        item.administrator.id,
-        item.condominium.id,
-        updatedUser,
+      if (item.isPlatformStandaloneAccount) {
+        final roleRepo = _accountRoleRepository;
+        if (roleRepo == null) return false;
+        final updatedProfile = AccountRoleProfile(
+          uid: item.user.id,
+          name: item.user.name,
+          email: item.user.email,
+          role: item.user.role,
+          active: nextActive,
+          mustChangePassword: item.user.mustChangePassword,
+          createdAt: item.user.createdAt,
+        );
+        await roleRepo.saveAccountRole(updatedProfile);
+
+        final updatedStandalone = state.standalonePlatformAccounts
+            .map((p) => p.uid == item.user.id ? updatedProfile : p)
+            .toList();
+
+        if (!mounted) return true;
+        state = state.copyWith(
+          isSaving: false,
+          standalonePlatformAccounts: updatedStandalone,
+          clearActionError: true,
+        );
+        return true;
+      }
+
+      final adminId = item.administrator!.id;
+      final condoId = item.condominium!.id;
+      final updatedUser = item.user.copyWith(active: nextActive);
+
+      await _userRepository.updateUser(adminId, condoId, updatedUser);
+      await _accountRoleRepository?.saveAccountRole(
+        AccountRoleProfile(
+          uid: updatedUser.id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          active: updatedUser.active,
+          mustChangePassword: updatedUser.mustChangePassword,
+          administratorId: adminId,
+          condominiumId: condoId,
+        ),
       );
 
       final updatedGroups = state.condominiumGroups.map((group) {
-        if (group.administrator.id != item.administrator.id ||
-            group.condominium.id != item.condominium.id) {
+        if (group.administrator.id != adminId ||
+            group.condominium.id != condoId) {
           return group;
         }
         final updatedUsers = group.users
@@ -476,7 +758,7 @@ class AccountsController extends StateNotifier<AccountsState> {
         return group.copyWith(users: updatedUsers);
       }).toList();
 
-      _onCachesInvalidated?.call(item.administrator.id, item.condominium.id);
+      _onCachesInvalidated?.call(adminId, condoId);
 
       if (!mounted) return true;
 
