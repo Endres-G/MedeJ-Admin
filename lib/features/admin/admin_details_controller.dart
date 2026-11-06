@@ -54,6 +54,7 @@ class CondominiumOverviewItem {
   final int apartmentsCount;
   final int blocksWithoutApartmentsCount;
   final int usersCount;
+  final int activeUsersCount;
 
   const CondominiumOverviewItem({
     required this.condominium,
@@ -61,6 +62,7 @@ class CondominiumOverviewItem {
     required this.apartmentsCount,
     required this.blocksWithoutApartmentsCount,
     required this.usersCount,
+    this.activeUsersCount = 0,
   });
 
   List<String> get pendingSteps {
@@ -116,6 +118,9 @@ class AdminDetailsState {
 
   int get totalUsers =>
       condominiums.fold(0, (sum, item) => sum + item.usersCount);
+
+  int get activeUsers =>
+      condominiums.fold(0, (sum, item) => sum + item.activeUsersCount);
 
   AdminDetailsState copyWith({
     bool? isLoading,
@@ -219,6 +224,7 @@ class AdminDetailsController extends StateNotifier<AdminDetailsState> {
 
     final blocks = await blocksFuture;
     final users = await usersFuture;
+    final activeUsersCount = users.where((u) => u.active).length;
 
     final apartmentsPerBlock = await Future.wait(
       blocks.map(
@@ -246,6 +252,7 @@ class AdminDetailsController extends StateNotifier<AdminDetailsState> {
       apartmentsCount: totalApartments,
       blocksWithoutApartmentsCount: blocksWithoutApartments,
       usersCount: users.length,
+      activeUsersCount: activeUsersCount,
     );
   }
 

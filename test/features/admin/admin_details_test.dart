@@ -343,6 +343,7 @@ void main() {
         find.text('Etapas pendentes: Blocos, Apartamentos, Contas'),
         findsOneWidget,
       );
+      expect(find.text('1 ativa'), findsOneWidget);
     },
   );
 

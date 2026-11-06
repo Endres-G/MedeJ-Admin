@@ -328,6 +328,10 @@ class _AdminDetailsPageState extends ConsumerState<AdminDetailsPage> {
             ? '${state.activeCondominiums} ${_pluralWord(state.activeCondominiums, 'ativo', 'ativos')}'
             : null;
 
+        final accountsSubtitle = state.totalUsers > 0
+            ? '${state.activeUsers} ${_pluralWord(state.activeUsers, 'ativa', 'ativas')}'
+            : null;
+
         final apartmentSubtitle = state.totalBlocks > 0
             ? 'em ${_pluralize(state.totalBlocks, 'bloco', 'blocos')}'
             : null;
@@ -350,9 +354,7 @@ class _AdminDetailsPageState extends ConsumerState<AdminDetailsPage> {
               child: _SummaryCard(
                 title: 'Contas',
                 value: '${state.totalUsers}',
-                subtitle: state.totalUsers > 0
-                    ? '${state.activeUsers} ${_pluralWord(state.activeUsers, 'ativa', 'ativas')}'
-                    : 'Nenhuma conta cadastrada',
+                subtitle: accountsSubtitle,
                 icon: Icons.people_outline,
               ),
             ),
