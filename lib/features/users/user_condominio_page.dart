@@ -674,17 +674,15 @@ class _CondominiumUserTile extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 12,
-        alignment: WrapAlignment.spaceBetween,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isCompact = constraints.maxWidth < 650;
+
+          final userDetails = Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               CircleAvatar(
+                radius: 20,
                 backgroundColor: user.active
                     ? colorScheme.primaryContainer
                     : colorScheme.surfaceContainerHighest,
@@ -699,8 +697,7 @@ class _CondominiumUserTile extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 14),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 460),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -709,6 +706,7 @@ class _CondominiumUserTile extends StatelessWidget {
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                     const SizedBox(height: 2),
                     Row(
@@ -718,6 +716,7 @@ class _CondominiumUserTile extends StatelessWidget {
                           child: Text(
                             user.email,
                             style: Theme.of(context).textTheme.bodyMedium,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                         const SizedBox(width: 4),
@@ -740,13 +739,15 @@ class _CondominiumUserTile extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
             ],
-          ),
-          Wrap(
+          );
+
+          final actionsAndChips = Wrap(
             spacing: 8,
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
@@ -840,8 +841,28 @@ class _CondominiumUserTile extends StatelessWidget {
                 ],
               ),
             ],
-          ),
-        ],
+          );
+
+          if (isCompact) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                userDetails,
+                const SizedBox(height: 12),
+                actionsAndChips,
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: userDetails),
+              const SizedBox(width: 16),
+              actionsAndChips,
+            ],
+          );
+        },
       ),
     );
   }

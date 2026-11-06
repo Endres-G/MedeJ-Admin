@@ -485,13 +485,13 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
       apartmentId: item.apartment.id,
     );
 
-    if (!context.mounted) return;
+    if (!mounted) return;
 
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (dialogCtx) => AlertDialog(
         title: Text('Histórico: ${item.block.name} - Apto ${item.apartment.name}'),
         content: SizedBox(
           width: 500,
@@ -516,7 +516,7 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
                       trailing: h.photoUrl != null
                           ? IconButton(
                               icon: const Icon(Icons.image_outlined),
-                              onPressed: () => _showPhotoDialog(context, h.photoUrl!),
+                              onPressed: () => _showPhotoDialog(dialogCtx, h.photoUrl!),
                             )
                           : null,
                     );
@@ -525,7 +525,7 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.of(dialogCtx).pop(),
             child: const Text('Fechar'),
           ),
         ],

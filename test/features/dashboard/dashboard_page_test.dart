@@ -21,10 +21,24 @@ class _FakeAdminRepo implements AdministratorRepository {
   _FakeAdminRepo({this.administrators = const [], this.errorToThrow});
 
   @override
-  Future<List<AdministratorModel>> getAdministrators() async {
+  Future<List<AdministratorModel>> getAdministrators({bool includeDeleted = false}) async {
     if (errorToThrow != null) throw errorToThrow!;
     return List.of(administrators);
   }
+
+  @override
+  Future<List<AdministratorModel>> getDeletedAdministrators() =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> moveToTrash(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> restoreFromTrash(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> permanentDeleteAdministrator(String id) =>
+      throw UnimplementedError();
 
   @override
   Future<AdministratorModel> getAdministrator(String id) =>

@@ -350,6 +350,9 @@ class _AdminDetailsPageState extends ConsumerState<AdminDetailsPage> {
               child: _SummaryCard(
                 title: 'Contas',
                 value: '${state.totalUsers}',
+                subtitle: state.totalUsers > 0
+                    ? '${state.activeUsers} ${_pluralWord(state.activeUsers, 'ativa', 'ativas')}'
+                    : 'Nenhuma conta cadastrada',
                 icon: Icons.people_outline,
               ),
             ),
@@ -1033,15 +1036,17 @@ class _SummaryCard extends StatelessWidget {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle!,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                      ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle ?? ' ',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: subtitle != null
+                          ? colorScheme.onSurfaceVariant
+                          : Colors.transparent,
                     ),
-                  ],
+                  ),
                 ],
               ),
             ),

@@ -45,7 +45,21 @@ class _FakeAdministratorRepository implements AdministratorRepository {
   Future<void> deleteAdministrator(String id) => throw UnimplementedError();
 
   @override
-  Future<List<AdministratorModel>> getAdministrators() =>
+  Future<List<AdministratorModel>> getAdministrators({bool includeDeleted = false}) =>
+      throw UnimplementedError();
+
+  @override
+  Future<List<AdministratorModel>> getDeletedAdministrators() =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> moveToTrash(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> restoreFromTrash(String id) => throw UnimplementedError();
+
+  @override
+  Future<void> permanentDeleteAdministrator(String id) =>
       throw UnimplementedError();
 }
 

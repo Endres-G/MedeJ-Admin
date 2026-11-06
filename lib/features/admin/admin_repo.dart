@@ -7,8 +7,12 @@ class AdministratorRepository {
   AdministratorRepository({AdministratorFirestoreDataSource? dataSource})
     : _dataSource = dataSource ?? AdministratorFirestoreDataSource();
 
-  Future<List<AdministratorModel>> getAdministrators() {
-    return _dataSource.getAdministrators();
+  Future<List<AdministratorModel>> getAdministrators({bool includeDeleted = false}) {
+    return _dataSource.getAdministrators(includeDeleted: includeDeleted);
+  }
+
+  Future<List<AdministratorModel>> getDeletedAdministrators() {
+    return _dataSource.getDeletedAdministrators();
   }
 
   Future<AdministratorModel> getAdministrator(String id) {
@@ -21,6 +25,18 @@ class AdministratorRepository {
 
   Future<void> updateAdministrator(AdministratorModel administrator) {
     return _dataSource.updateAdministrator(administrator);
+  }
+
+  Future<void> moveToTrash(String id) {
+    return _dataSource.moveToTrash(id);
+  }
+
+  Future<void> restoreFromTrash(String id) {
+    return _dataSource.restoreFromTrash(id);
+  }
+
+  Future<void> permanentDeleteAdministrator(String id) {
+    return _dataSource.permanentDeleteAdministrator(id);
   }
 
   Future<void> deleteAdministrator(String id) {

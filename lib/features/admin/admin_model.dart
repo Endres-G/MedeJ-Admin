@@ -5,6 +5,7 @@ class AdministratorModel {
   final String? phone;
   final bool active;
   final DateTime? createdAt;
+  final DateTime? deletedAt;
 
   const AdministratorModel({
     required this.id,
@@ -13,7 +14,10 @@ class AdministratorModel {
     this.phone,
     required this.active,
     this.createdAt,
+    this.deletedAt,
   });
+
+  bool get isDeleted => deletedAt != null;
 
   AdministratorModel copyWith({
     String? id,
@@ -23,6 +27,8 @@ class AdministratorModel {
     bool clearPhone = false,
     bool? active,
     DateTime? createdAt,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
   }) {
     return AdministratorModel(
       id: id ?? this.id,
@@ -31,6 +37,7 @@ class AdministratorModel {
       phone: clearPhone ? null : (phone ?? this.phone),
       active: active ?? this.active,
       createdAt: createdAt ?? this.createdAt,
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
     );
   }
 
@@ -47,6 +54,18 @@ class AdministratorModel {
       }
     }
 
+    final rawDeletedAt = map['deletedAt'];
+    DateTime? parsedDeletedAt;
+    if (rawDeletedAt is DateTime) {
+      parsedDeletedAt = rawDeletedAt;
+    } else if (rawDeletedAt != null) {
+      try {
+        parsedDeletedAt = (rawDeletedAt as dynamic).toDate() as DateTime?;
+      } catch (_) {
+        parsedDeletedAt = null;
+      }
+    }
+
     return AdministratorModel(
       id: id,
       name: map['name'] as String? ?? '',
@@ -54,6 +73,7 @@ class AdministratorModel {
       phone: map['phone'] as String?,
       active: map['active'] as bool? ?? true,
       createdAt: parsedCreatedAt,
+      deletedAt: parsedDeletedAt,
     );
   }
 
@@ -64,6 +84,7 @@ class AdministratorModel {
       'phone': phone,
       'active': active,
       if (createdAt != null) 'createdAt': createdAt,
+      if (deletedAt != null) 'deletedAt': deletedAt,
     };
   }
 }

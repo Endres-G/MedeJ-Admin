@@ -32,7 +32,19 @@ class _InMemoryAdminRepo implements AdministratorRepository {
   _InMemoryAdminRepo(this.admins);
 
   @override
-  Future<List<AdministratorModel>> getAdministrators() async => List.of(admins);
+  Future<List<AdministratorModel>> getAdministrators({bool includeDeleted = false}) async => List.of(admins);
+
+  @override
+  Future<List<AdministratorModel>> getDeletedAdministrators() async => [];
+
+  @override
+  Future<void> moveToTrash(String id) async {}
+
+  @override
+  Future<void> restoreFromTrash(String id) async {}
+
+  @override
+  Future<void> permanentDeleteAdministrator(String id) async {}
 
   @override
   Future<AdministratorModel> getAdministrator(String id) async =>
