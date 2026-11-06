@@ -36,6 +36,11 @@ service cloud.firestore {
         accountRoleData().condominiumId == condominiumId;
     }
 
+    // Regra para Collection Group de Leituras (permite Admin ler todas as leituras no painel)
+    match /{path=**}/readings/{readingId} {
+      allow read: if isAdmin();
+    }
+
     // Tabela raiz de controle de perfis (vinculada 1:1 ao UID do Firebase Auth)
     match /account_roles/{uid} {
       // O próprio usuário pode ler seu perfil; Admins podem ler todos.
