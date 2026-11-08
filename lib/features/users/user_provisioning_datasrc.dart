@@ -111,6 +111,19 @@ abstract class UserAuthProvisioner {
     required Future<T> Function(String authUid) persistUser,
   });
 
+  /// Atualiza a senha temporária no Firebase Auth quando a senha atual é conhecida.
+  Future<void> updateTemporaryPassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  });
+
+  /// Exclui o usuário no Firebase Auth quando a senha temporária é conhecida.
+  Future<void> deleteAuthUserWithPassword({
+    required String email,
+    required String password,
+  });
+
   /// Dispara o e-mail oficial do Firebase para redefinição de senha.
   Future<void> sendPasswordResetEmail(String email);
 }
@@ -177,6 +190,61 @@ class FirebaseUserAuthProvisioner implements UserAuthProvisioner {
           // Melhor esforço para evitar conta órfã no Firebase Auth.
         }
         rethrow;
+      }
+    } finally {
+      try {
+        await secondaryAuth.signOut();
+      } catch (_) {}
+    }
+  }
+
+  @override
+  Future<void> updateTemporaryPassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final secondaryApp = await _obtainSecondaryApp();
+    final secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
+    try {
+      await secondaryAuth.setPersistence(Persistence.NONE);
+    } catch (_) {}
+
+    try {
+      final credential = await secondaryAuth.signInWithEmailAndPassword(
+        email: email.trim().toLowerCase(),
+        password: currentPassword,
+      );
+      final user = credential.user;
+      if (user != null) {
+        await user.updatePassword(newPassword);
+      }
+    } finally {
+      try {
+        await secondaryAuth.signOut();
+      } catch (_) {}
+    }
+  }
+
+  @override
+  Future<void> deleteAuthUserWithPassword({
+    required String email,
+    required String password,
+  }) async {
+    final secondaryApp = await _obtainSecondaryApp();
+    final secondaryAuth = FirebaseAuth.instanceFor(app: secondaryApp);
+    try {
+      await secondaryAuth.setPersistence(Persistence.NONE);
+    } catch (_) {}
+
+    try {
+      final credential = await secondaryAuth.signInWithEmailAndPassword(
+        email: email.trim().toLowerCase(),
+        password: password,
+      );
+      final user = credential.user;
+      if (user != null) {
+        await user.delete();
       }
     } finally {
       try {

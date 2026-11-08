@@ -61,6 +61,10 @@ class UserModel {
   /// Indica que a conta foi criada com senha temporária e deve redefinir
   /// a senha no primeiro login pelo aplicativo mobile MedeJá.
   final bool mustChangePassword;
+
+  /// Senha temporária de primeiro acesso gerada pelo administrador.
+  /// Mantida enquanto [mustChangePassword] for true para permitir resgate/consulta.
+  final String? temporaryPassword;
   final DateTime? createdAt;
 
   const UserModel({
@@ -71,6 +75,7 @@ class UserModel {
     required this.active,
     this.role = UserRole.user,
     this.mustChangePassword = false,
+    this.temporaryPassword,
     this.createdAt,
   });
 
@@ -97,6 +102,7 @@ class UserModel {
       active: map['active'] as bool? ?? true,
       role: UserRole.fromMap(map, fallback: UserRole.user),
       mustChangePassword: map['mustChangePassword'] as bool? ?? false,
+      temporaryPassword: map['temporaryPassword'] as String?,
       createdAt: parsedCreatedAt,
     );
   }
@@ -110,6 +116,8 @@ class UserModel {
       'role': role.value,
       'isAdmin': isAdmin,
       'mustChangePassword': mustChangePassword,
+      if (mustChangePassword && temporaryPassword != null && temporaryPassword!.isNotEmpty)
+        'temporaryPassword': temporaryPassword,
       if (createdAt != null) 'createdAt': createdAt,
     };
   }
@@ -123,6 +131,8 @@ class UserModel {
     bool? active,
     UserRole? role,
     bool? mustChangePassword,
+    String? temporaryPassword,
+    bool clearTemporaryPassword = false,
     DateTime? createdAt,
   }) {
     return UserModel(
@@ -133,6 +143,9 @@ class UserModel {
       active: active ?? this.active,
       role: role ?? this.role,
       mustChangePassword: mustChangePassword ?? this.mustChangePassword,
+      temporaryPassword: clearTemporaryPassword
+          ? null
+          : (temporaryPassword ?? this.temporaryPassword),
       createdAt: createdAt ?? this.createdAt,
     );
   }

@@ -383,6 +383,14 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                         icon: const Icon(Icons.person_add_outlined, size: 18),
                         label: const Text('Criar conta'),
                       ),
+                      const SizedBox(width: 8),
+                      OutlinedButton.icon(
+                        onPressed: state.isSaving
+                            ? null
+                            : () => _openLinkAccountToCondo(group),
+                        icon: const Icon(Icons.link_outlined, size: 18),
+                        label: const Text('Vincular existente'),
+                      ),
                     ],
                   ),
                 );
@@ -627,6 +635,12 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
                 onEdit: () => _openEditAccount(item, isSelf),
                 onSendPasswordReset: () => _handlePasswordReset(item),
                 onToggleActive: () => _handleToggleAccount(item),
+                onViewCredentials: () => _handleViewCredentials(item),
+                onRegeneratePassword: () => _handleRegeneratePassword(item),
+                onLinkCondominium: () => _handleLinkCondominium(item),
+                onUnlinkCondominium: () => _handleUnlinkCondominium(item),
+                onDeleteAccount:
+                    isSelf ? null : () => _handleDeleteAccount(item),
               ),
               if (index < accounts.length - 1) const Divider(height: 1),
             ],
@@ -770,6 +784,227 @@ class _AccountsPageState extends ConsumerState<AccountsPage> {
       );
     }
   }
+
+  Future<void> _openLinkAccountToCondo(CondominiumAccountGroup group) async {
+    final state = ref.read(accountsControllerProvider);
+    final available = state.standalonePlatformAccounts;
+    if (available.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Não há contas sem vínculo disponíveis no momento. Crie uma nova conta para este condomínio.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final selected = await showSelectAccountToLinkDialog(
+      context: context,
+      condominiumName: group.condominium.name,
+      availableAccounts: available,
+    );
+
+    if (selected == null || !mounted) return;
+
+    final controller = ref.read(accountsControllerProvider.notifier);
+    final success = await controller.linkAccountToCondominium(
+      item: AccountOverviewItem(
+        user: UserModel(
+          id: selected.uid,
+          name: selected.name,
+          email: selected.email,
+          active: selected.active,
+          role: selected.role,
+          mustChangePassword: selected.mustChangePassword,
+          temporaryPassword: selected.temporaryPassword,
+          createdAt: selected.createdAt,
+        ),
+      ),
+      administratorId: group.administrator.id,
+      condominiumId: group.condominium.id,
+    );
+
+    if (!mounted) return;
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Conta "${selected.name}" vinculada a ${group.condominium.name} com sucesso.',
+          ),
+        ),
+      );
+    } else {
+      final err = ref.read(accountsControllerProvider).actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err ?? 'Erro ao vincular conta.')),
+      );
+    }
+  }
+
+  Future<void> _handleViewCredentials(AccountOverviewItem item) async {
+    final tempPwd = item.user.temporaryPassword;
+    if (tempPwd != null && tempPwd.isNotEmpty) {
+      await showProvisionedCredentialsDialog(
+        context: context,
+        credentials: ProvisionedUserCredentials(
+          user: item.user,
+          temporaryPassword: tempPwd,
+          condominiumId: item.condominium?.id ?? '',
+          condominiumName:
+              item.condominium?.name ?? 'Painel Administrativo MedeJá (Global)',
+          administratorName: item.administrator?.name,
+        ),
+        customTitle: 'Senha de 1º acesso de ${item.user.name}',
+      );
+    } else {
+      final shouldRegenerate = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Senha de 1º acesso'),
+          content: Text(
+            'A senha temporária inicial de "${item.user.name}" não foi salva nesta conta (criada anteriormente).\n\nDeseja regenerar uma nova senha temporária de primeiro acesso agora?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Regenerar nova senha'),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldRegenerate == true && mounted) {
+        await _handleRegeneratePassword(item);
+      }
+    }
+  }
+
+  Future<void> _handleRegeneratePassword(AccountOverviewItem item) async {
+    final newPassword = await showRegenerateTemporaryPasswordDialog(
+      context: context,
+      userName: item.user.name,
+      userEmail: item.user.email,
+    );
+
+    if (newPassword == null || !mounted) return;
+
+    final controller = ref.read(accountsControllerProvider.notifier);
+    final credentials = await controller.regenerateTemporaryPassword(
+      item: item,
+      newTemporaryPassword: newPassword,
+    );
+
+    if (!mounted) return;
+
+    if (credentials != null) {
+      await showProvisionedCredentialsDialog(
+        context: context,
+        credentials: credentials,
+        customTitle: 'Nova senha temporária de ${item.user.name}',
+      );
+    } else {
+      final err = ref.read(accountsControllerProvider).actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err ?? 'Erro ao regenerar senha temporária.')),
+      );
+    }
+  }
+
+  Future<void> _handleLinkCondominium(AccountOverviewItem item) async {
+    final state = ref.read(accountsControllerProvider);
+    final selectedGroup = await showSelectCondominiumToLinkDialog(
+      context: context,
+      accountName: item.user.name,
+      condominiumGroups: state.condominiumGroups,
+    );
+
+    if (selectedGroup == null || !mounted) return;
+
+    final controller = ref.read(accountsControllerProvider.notifier);
+    final success = await controller.linkAccountToCondominium(
+      item: item,
+      administratorId: selectedGroup.administrator.id,
+      condominiumId: selectedGroup.condominium.id,
+    );
+
+    if (!mounted) return;
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Conta "${item.user.name}" vinculada a ${selectedGroup.condominium.name} com sucesso.',
+          ),
+        ),
+      );
+    } else {
+      final err = ref.read(accountsControllerProvider).actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err ?? 'Erro ao vincular conta ao condomínio.')),
+      );
+    }
+  }
+
+  Future<void> _handleUnlinkCondominium(AccountOverviewItem item) async {
+    final condoName = item.condominium?.name ?? 'Condomínio';
+    final confirmed = await showConfirmUnlinkAccountDialog(
+      context: context,
+      userName: item.user.name,
+      condominiumName: condoName,
+    );
+
+    if (!confirmed || !mounted) return;
+
+    final controller = ref.read(accountsControllerProvider.notifier);
+    final success = await controller.unlinkAccountFromCondominium(item);
+
+    if (!mounted) return;
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Conta "${item.user.name}" desvinculada de $condoName com sucesso.',
+          ),
+        ),
+      );
+    } else {
+      final err = ref.read(accountsControllerProvider).actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err ?? 'Erro ao desvincular conta.')),
+      );
+    }
+  }
+
+  Future<void> _handleDeleteAccount(AccountOverviewItem item) async {
+    final confirmed = await showConfirmDeleteAccountDialog(
+      context: context,
+      userName: item.user.name,
+      userEmail: item.user.email,
+    );
+
+    if (!confirmed || !mounted) return;
+
+    final controller = ref.read(accountsControllerProvider.notifier);
+    final success = await controller.deleteAccount(item);
+
+    if (!mounted) return;
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Conta de "${item.user.name}" excluída com sucesso.'),
+        ),
+      );
+    } else {
+      final err = ref.read(accountsControllerProvider).actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err ?? 'Erro ao excluir conta.')),
+      );
+    }
+  }
 }
 
 class _GlobalAccountTile extends StatelessWidget {
@@ -781,6 +1016,11 @@ class _GlobalAccountTile extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onSendPasswordReset;
   final VoidCallback onToggleActive;
+  final VoidCallback? onViewCredentials;
+  final VoidCallback? onRegeneratePassword;
+  final VoidCallback? onLinkCondominium;
+  final VoidCallback? onUnlinkCondominium;
+  final VoidCallback? onDeleteAccount;
 
   const _GlobalAccountTile({
     required this.item,
@@ -791,6 +1031,11 @@ class _GlobalAccountTile extends StatelessWidget {
     required this.onEdit,
     required this.onSendPasswordReset,
     required this.onToggleActive,
+    this.onViewCredentials,
+    this.onRegeneratePassword,
+    this.onLinkCondominium,
+    this.onUnlinkCondominium,
+    this.onDeleteAccount,
   });
 
   @override
@@ -960,19 +1205,18 @@ class _GlobalAccountTile extends StatelessWidget {
                     : colorScheme.surfaceContainerHigh,
               ),
               if (user.mustChangePassword)
-                Tooltip(
-                  message:
-                      'Criada com senha temporária — aguardando primeiro acesso e troca de senha.',
-                  child: Chip(
-                    avatar: Icon(
-                      Icons.key_outlined,
-                      size: 16,
-                      color: colorScheme.onTertiaryContainer,
-                    ),
-                    label: const Text('1º acesso pendente'),
-                    visualDensity: VisualDensity.compact,
-                    backgroundColor: colorScheme.tertiaryContainer,
+                ActionChip(
+                  avatar: Icon(
+                    Icons.key_outlined,
+                    size: 16,
+                    color: colorScheme.onTertiaryContainer,
                   ),
+                  label: const Text('1º acesso pendente'),
+                  visualDensity: VisualDensity.compact,
+                  backgroundColor: colorScheme.tertiaryContainer,
+                  tooltip:
+                      'Clique para ver a senha temporária de primeiro acesso',
+                  onPressed: disabled ? null : onViewCredentials,
                 ),
               Chip(
                 label: Text(user.active ? 'Ativa' : 'Inativa'),
@@ -986,8 +1230,20 @@ class _GlobalAccountTile extends StatelessWidget {
                 enabled: !disabled,
                 onSelected: (action) {
                   switch (action) {
+                    case 'view_credentials':
+                      onViewCredentials?.call();
+                      break;
+                    case 'regenerate_password':
+                      onRegeneratePassword?.call();
+                      break;
                     case 'edit':
                       onEdit();
+                      break;
+                    case 'link_condo':
+                      onLinkCondominium?.call();
+                      break;
+                    case 'unlink_condo':
+                      onUnlinkCondominium?.call();
                       break;
                     case 'reset_password':
                       onSendPasswordReset();
@@ -998,9 +1254,31 @@ class _GlobalAccountTile extends StatelessWidget {
                     case 'toggle_active':
                       onToggleActive();
                       break;
+                    case 'delete_account':
+                      onDeleteAccount?.call();
+                      break;
                   }
                 },
                 itemBuilder: (context) => [
+                  if (user.mustChangePassword) ...[
+                    const PopupMenuItem(
+                      value: 'view_credentials',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.key_outlined),
+                        title: Text('Ver senha de 1º acesso'),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'regenerate_password',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.password_outlined),
+                        title: Text('Regenerar senha temporária'),
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                  ],
                   const PopupMenuItem(
                     value: 'edit',
                     child: ListTile(
@@ -1009,6 +1287,24 @@ class _GlobalAccountTile extends StatelessWidget {
                       title: Text('Editar dados e perfil'),
                     ),
                   ),
+                  if (item.isPlatformStandaloneAccount)
+                    const PopupMenuItem(
+                      value: 'link_condo',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.link_outlined),
+                        title: Text('Vincular a um condomínio'),
+                      ),
+                    )
+                  else
+                    const PopupMenuItem(
+                      value: 'unlink_condo',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.link_off_outlined),
+                        title: Text('Desvincular do condomínio'),
+                      ),
+                    ),
                   const PopupMenuItem(
                     value: 'reset_password',
                     child: ListTile(
@@ -1026,7 +1322,7 @@ class _GlobalAccountTile extends StatelessWidget {
                         title: Text('Ver contas do condomínio'),
                       ),
                     ),
-                  if (!isSelfAccount)
+                  if (!isSelfAccount) ...[
                     PopupMenuItem(
                       value: 'toggle_active',
                       child: ListTile(
@@ -1041,6 +1337,24 @@ class _GlobalAccountTile extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (onDeleteAccount != null) ...[
+                      const PopupMenuDivider(),
+                      PopupMenuItem(
+                        value: 'delete_account',
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            Icons.delete_outline,
+                            color: colorScheme.error,
+                          ),
+                          title: Text(
+                            'Excluir conta',
+                            style: TextStyle(color: colorScheme.error),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ],
               ),
             ],

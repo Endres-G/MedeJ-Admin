@@ -3,12 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mede_ja_admin/app/routes/app_routes.dart';
+import 'package:mede_ja_admin/features/auth/account_role_datasrc.dart';
 import 'package:mede_ja_admin/features/auth/auth_controller.dart';
 import 'package:mede_ja_admin/features/condominos/condominium_details_controller.dart';
 import 'package:mede_ja_admin/features/condominos/structure_dialogs.dart';
 import 'package:mede_ja_admin/features/contas/accounts_controller.dart';
 import 'package:mede_ja_admin/features/users/user_credentials_dialog.dart';
 import 'package:mede_ja_admin/features/users/user_model.dart';
+import 'package:mede_ja_admin/features/users/user_provisioning_datasrc.dart';
 
 class CondominiumUsersPage extends ConsumerStatefulWidget {
   final String condominiumId;
@@ -219,6 +221,14 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
             ),
             if (!isSmall) ...[
               const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: condoState.isSaving
+                    ? null
+                    : () => _openLinkExistingAccount(condoState),
+                icon: const Icon(Icons.link_outlined),
+                label: const Text('Vincular existente'),
+              ),
+              const SizedBox(width: 8),
               FilledButton.icon(
                 onPressed: () => context.go(newUserRoute),
                 icon: const Icon(Icons.person_add_outlined),
@@ -229,13 +239,26 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
         ),
         if (isSmall) ...[
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton.icon(
-              onPressed: () => context.go(newUserRoute),
-              icon: const Icon(Icons.person_add_outlined),
-              label: const Text('Nova conta'),
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: condoState.isSaving
+                      ? null
+                      : () => _openLinkExistingAccount(condoState),
+                  icon: const Icon(Icons.link_outlined),
+                  label: const Text('Vincular existente'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => context.go(newUserRoute),
+                  icon: const Icon(Icons.person_add_outlined),
+                  label: const Text('Nova conta'),
+                ),
+              ),
+            ],
           ),
         ],
       ],
@@ -379,10 +402,24 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 24),
-                FilledButton.icon(
-                  onPressed: () => context.go(newUserRoute),
-                  icon: const Icon(Icons.person_add_outlined),
-                  label: const Text('Criar conta do condomínio'),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: () => context.go(newUserRoute),
+                      icon: const Icon(Icons.person_add_outlined),
+                      label: const Text('Criar conta do condomínio'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: condoState.isSaving
+                          ? null
+                          : () => _openLinkExistingAccount(condoState),
+                      icon: const Icon(Icons.link_outlined),
+                      label: const Text('Vincular conta existente'),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -502,6 +539,14 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
                       onEdit: () => _openEditUser(condoState, user, isSelf),
                       onSendPasswordReset: () => _handlePasswordReset(user),
                       onToggleActive: () => _handleToggleUser(user),
+                      onViewCredentials: () =>
+                          _handleViewCredentials(user, condoState),
+                      onRegeneratePassword: () =>
+                          _handleRegeneratePassword(user, condoState),
+                      onUnlinkCondominium: () =>
+                          _handleUnlinkUser(user, condoState),
+                      onDeleteUser:
+                          isSelf ? null : () => _handleDeleteUser(user),
                     ),
                     if (index < users.length - 1) const Divider(height: 1),
                   ],
@@ -638,6 +683,213 @@ class _CondominiumUsersPageState extends ConsumerState<CondominiumUsersPage> {
       );
     }
   }
+
+  Future<void> _openLinkExistingAccount(
+    CondominiumDetailsState condoState,
+  ) async {
+    final roleRepo = ref.read(accountRoleRepositoryProvider);
+    final allRoles = await roleRepo.getAllAccountRoles();
+    final currentCondoUsers = condoState.users.map((u) => u.id).toSet();
+    final available = allRoles
+        .where(
+          (p) =>
+              !p.isLinkedToCondominium &&
+              !currentCondoUsers.contains(p.uid),
+        )
+        .toList();
+
+    if (!mounted) return;
+
+    if (available.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Não há contas sem condomínio vinculadas disponíveis. Crie uma nova conta para este condomínio.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final selected = await showSelectAccountToLinkDialog(
+      context: context,
+      condominiumName: condoState.condominium?.name ?? 'Condomínio',
+      availableAccounts: available,
+    );
+
+    if (selected == null || !mounted) return;
+
+    final controller = ref.read(
+      condominiumDetailsControllerProvider(_scope).notifier,
+    );
+    final success = await controller.linkExistingUser(selected);
+
+    if (!mounted) return;
+    if (success) {
+      ref.invalidate(accountsControllerProvider);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Conta "${selected.name}" vinculada com sucesso.'),
+        ),
+      );
+    } else {
+      final err = ref
+          .read(condominiumDetailsControllerProvider(_scope))
+          .actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err ?? 'Erro ao vincular conta.')),
+      );
+    }
+  }
+
+  Future<void> _handleViewCredentials(
+    UserModel user,
+    CondominiumDetailsState condoState,
+  ) async {
+    if (user.temporaryPassword != null && user.temporaryPassword!.isNotEmpty) {
+      await showProvisionedCredentialsDialog(
+        context: context,
+        credentials: ProvisionedUserCredentials(
+          user: user,
+          temporaryPassword: user.temporaryPassword!,
+          condominiumId: widget.condominiumId,
+          condominiumName: condoState.condominium?.name ?? 'Condomínio',
+          administratorName: condoState.administrator?.name,
+        ),
+        customTitle: 'Senha de 1º acesso de ${user.name}',
+      );
+    } else {
+      final shouldRegenerate = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Senha de 1º acesso'),
+          content: Text(
+            'A senha temporária inicial de "${user.name}" não foi salva nesta conta (criada anteriormente).\n\nDeseja regenerar uma nova senha temporária de primeiro acesso agora?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Regenerar nova senha'),
+            ),
+          ],
+        ),
+      );
+      if (shouldRegenerate == true && mounted) {
+        await _handleRegeneratePassword(user, condoState);
+      }
+    }
+  }
+
+  Future<void> _handleRegeneratePassword(
+    UserModel user,
+    CondominiumDetailsState condoState,
+  ) async {
+    final newPassword = await showRegenerateTemporaryPasswordDialog(
+      context: context,
+      userName: user.name,
+      userEmail: user.email,
+    );
+
+    if (newPassword == null || !mounted) return;
+
+    final controller = ref.read(
+      condominiumDetailsControllerProvider(_scope).notifier,
+    );
+
+    final credentials = await controller.regenerateUserTemporaryPassword(
+      user: user,
+      newTemporaryPassword: newPassword,
+    );
+
+    if (!mounted) return;
+
+    if (credentials != null) {
+      ref.invalidate(accountsControllerProvider);
+      await showProvisionedCredentialsDialog(
+        context: context,
+        credentials: credentials,
+        customTitle: 'Nova senha temporária de ${user.name}',
+      );
+    } else {
+      final err = ref
+          .read(condominiumDetailsControllerProvider(_scope))
+          .actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err ?? 'Erro ao regenerar senha temporária.')),
+      );
+    }
+  }
+
+  Future<void> _handleUnlinkUser(
+    UserModel user,
+    CondominiumDetailsState condoState,
+  ) async {
+    final confirmed = await showConfirmUnlinkAccountDialog(
+      context: context,
+      userName: user.name,
+      condominiumName: condoState.condominium?.name ?? 'Condomínio',
+    );
+
+    if (!confirmed || !mounted) return;
+
+    final controller = ref.read(
+      condominiumDetailsControllerProvider(_scope).notifier,
+    );
+    final success = await controller.unlinkCondominiumUser(user);
+
+    if (!mounted) return;
+    if (success) {
+      ref.invalidate(accountsControllerProvider);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Conta de "${user.name}" desvinculada com sucesso.'),
+        ),
+      );
+    } else {
+      final err = ref
+          .read(condominiumDetailsControllerProvider(_scope))
+          .actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err ?? 'Erro ao desvincular conta.')),
+      );
+    }
+  }
+
+  Future<void> _handleDeleteUser(UserModel user) async {
+    final confirmed = await showConfirmDeleteAccountDialog(
+      context: context,
+      userName: user.name,
+      userEmail: user.email,
+    );
+
+    if (!confirmed || !mounted) return;
+
+    final controller = ref.read(
+      condominiumDetailsControllerProvider(_scope).notifier,
+    );
+    final success = await controller.deleteCondominiumUser(user);
+
+    if (!mounted) return;
+    if (success) {
+      ref.invalidate(accountsControllerProvider);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Conta de "${user.name}" excluída com sucesso.'),
+        ),
+      );
+    } else {
+      final err = ref
+          .read(condominiumDetailsControllerProvider(_scope))
+          .actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(err ?? 'Erro ao excluir conta.')),
+      );
+    }
+  }
 }
 
 class _CondominiumUserTile extends StatelessWidget {
@@ -649,6 +901,10 @@ class _CondominiumUserTile extends StatelessWidget {
   final VoidCallback onEdit;
   final VoidCallback onSendPasswordReset;
   final VoidCallback onToggleActive;
+  final VoidCallback? onViewCredentials;
+  final VoidCallback? onRegeneratePassword;
+  final VoidCallback? onUnlinkCondominium;
+  final VoidCallback? onDeleteUser;
 
   const _CondominiumUserTile({
     required this.user,
@@ -659,6 +915,10 @@ class _CondominiumUserTile extends StatelessWidget {
     required this.onEdit,
     required this.onSendPasswordReset,
     required this.onToggleActive,
+    this.onViewCredentials,
+    this.onRegeneratePassword,
+    this.onUnlinkCondominium,
+    this.onDeleteUser,
   });
 
   @override
@@ -769,19 +1029,18 @@ class _CondominiumUserTile extends StatelessWidget {
                     : colorScheme.surfaceContainerHigh,
               ),
               if (user.mustChangePassword)
-                Tooltip(
-                  message:
-                      'Esta conta foi criada com senha temporária e ainda aguarda o primeiro login com troca de senha no aplicativo MedeJá.',
-                  child: Chip(
-                    avatar: Icon(
-                      Icons.key_outlined,
-                      size: 16,
-                      color: colorScheme.onTertiaryContainer,
-                    ),
-                    label: const Text('1º acesso pendente'),
-                    visualDensity: VisualDensity.compact,
-                    backgroundColor: colorScheme.tertiaryContainer,
+                ActionChip(
+                  avatar: Icon(
+                    Icons.key_outlined,
+                    size: 16,
+                    color: colorScheme.onTertiaryContainer,
                   ),
+                  label: const Text('1º acesso pendente'),
+                  visualDensity: VisualDensity.compact,
+                  backgroundColor: colorScheme.tertiaryContainer,
+                  tooltip:
+                      'Clique para ver a senha temporária de primeiro acesso',
+                  onPressed: disabled ? null : onViewCredentials,
                 ),
               Chip(
                 label: Text(user.active ? 'Ativa' : 'Inativa'),
@@ -795,8 +1054,17 @@ class _CondominiumUserTile extends StatelessWidget {
                 enabled: !disabled,
                 onSelected: (action) {
                   switch (action) {
+                    case 'view_credentials':
+                      onViewCredentials?.call();
+                      break;
+                    case 'regenerate_password':
+                      onRegeneratePassword?.call();
+                      break;
                     case 'edit':
                       onEdit();
+                      break;
+                    case 'unlink_condo':
+                      onUnlinkCondominium?.call();
                       break;
                     case 'reset_password':
                       onSendPasswordReset();
@@ -804,15 +1072,45 @@ class _CondominiumUserTile extends StatelessWidget {
                     case 'toggle_active':
                       onToggleActive();
                       break;
+                    case 'delete_user':
+                      onDeleteUser?.call();
+                      break;
                   }
                 },
                 itemBuilder: (context) => [
+                  if (user.mustChangePassword) ...[
+                    const PopupMenuItem(
+                      value: 'view_credentials',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.key_outlined),
+                        title: Text('Ver senha de 1º acesso'),
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'regenerate_password',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.password_outlined),
+                        title: Text('Regenerar senha temporária'),
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                  ],
                   const PopupMenuItem(
                     value: 'edit',
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: Icon(Icons.edit_outlined),
                       title: Text('Editar dados e perfil'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'unlink_condo',
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.link_off_outlined),
+                      title: Text('Desvincular do condomínio'),
                     ),
                   ),
                   const PopupMenuItem(
@@ -823,7 +1121,7 @@ class _CondominiumUserTile extends StatelessWidget {
                       title: Text('Enviar redefinição de senha'),
                     ),
                   ),
-                  if (!isSelfAccount)
+                  if (!isSelfAccount) ...[
                     PopupMenuItem(
                       value: 'toggle_active',
                       child: ListTile(
@@ -838,6 +1136,24 @@ class _CondominiumUserTile extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (onDeleteUser != null) ...[
+                      const PopupMenuDivider(),
+                      PopupMenuItem(
+                        value: 'delete_user',
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(
+                            Icons.delete_outline,
+                            color: colorScheme.error,
+                          ),
+                          title: Text(
+                            'Excluir conta',
+                            style: TextStyle(color: colorScheme.error),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ],
               ),
             ],

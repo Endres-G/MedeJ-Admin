@@ -1174,6 +1174,7 @@ class CondominiumDetailsController
             active: active,
             role: role,
             mustChangePassword: true,
+            temporaryPassword: temporaryPassword,
           );
           await _userRepository.saveUserWithId(
             adminId,
@@ -1189,6 +1190,7 @@ class CondominiumDetailsController
               role: role,
               active: active,
               mustChangePassword: true,
+              temporaryPassword: temporaryPassword,
               administratorId: adminId,
               condominiumId: scope.condominiumId,
             ),
@@ -1362,6 +1364,219 @@ class CondominiumDetailsController
     } catch (e) {
       if (!mounted) return false;
 
+      state = state.copyWith(isSaving: false, actionError: _formatError(e));
+      return false;
+    }
+  }
+
+  /// Vincula uma conta existente (ex.: conta global/sem condomínio) a este condomínio.
+  Future<bool> linkExistingUser(AccountRoleProfile profile) async {
+    final adminId = state.resolvedAdministratorId;
+    if (adminId == null || adminId.isEmpty) {
+      state = state.copyWith(
+        actionError: 'Administradora do condomínio não identificada.',
+      );
+      return false;
+    }
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      final userToSave = UserModel(
+        id: profile.uid,
+        name: profile.name,
+        email: profile.email,
+        active: profile.active,
+        role: profile.role,
+        mustChangePassword: profile.mustChangePassword,
+        temporaryPassword: profile.temporaryPassword,
+        createdAt: profile.createdAt,
+      );
+
+      await _userRepository.saveUserWithId(
+        adminId,
+        scope.condominiumId,
+        profile.uid,
+        userToSave,
+      );
+
+      await _accountRoleRepository?.linkAccountRole(
+        uid: profile.uid,
+        administratorId: adminId,
+        condominiumId: scope.condominiumId,
+      );
+
+      final updatedUsers = [
+        ...state.users.where((u) => u.id != profile.uid),
+        userToSave,
+      ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+      _onParentCachesInvalidated?.call(adminId);
+
+      if (!mounted) return true;
+
+      state = state.copyWith(
+        isSaving: false,
+        users: updatedUsers,
+        clearActionError: true,
+      );
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      state = state.copyWith(isSaving: false, actionError: _formatError(e));
+      return false;
+    }
+  }
+
+  /// Desvincula o usuário deste condomínio, transformando-o em conta livre/avulsa.
+  Future<bool> unlinkCondominiumUser(UserModel user) async {
+    final adminId = state.resolvedAdministratorId;
+    if (adminId == null || adminId.isEmpty) return false;
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      await _userRepository.deleteUser(adminId, scope.condominiumId, user.id);
+      await _accountRoleRepository?.unlinkAccountRole(user.id);
+
+      final updatedUsers = state.users.where((u) => u.id != user.id).toList();
+
+      _onParentCachesInvalidated?.call(adminId);
+
+      if (!mounted) return true;
+
+      state = state.copyWith(
+        isSaving: false,
+        users: updatedUsers,
+        clearActionError: true,
+      );
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      state = state.copyWith(isSaving: false, actionError: _formatError(e));
+      return false;
+    }
+  }
+
+  /// Regenera a senha temporária para primeiro acesso do usuário.
+  Future<ProvisionedUserCredentials?> regenerateUserTemporaryPassword({
+    required UserModel user,
+    required String newTemporaryPassword,
+  }) async {
+    final adminId = state.resolvedAdministratorId;
+    if (adminId == null || adminId.isEmpty) return null;
+
+    final validation = validateTemporaryPassword(newTemporaryPassword);
+    if (validation != null) {
+      state = state.copyWith(actionError: validation);
+      return null;
+    }
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      final currentPwd = user.temporaryPassword;
+      if (currentPwd != null && currentPwd.isNotEmpty) {
+        try {
+          await _userAuthProvisioner.updateTemporaryPassword(
+            email: user.email,
+            currentPassword: currentPwd,
+            newPassword: newTemporaryPassword,
+          );
+        } catch (_) {}
+      }
+
+      final updatedUser = user.copyWith(
+        mustChangePassword: true,
+        temporaryPassword: newTemporaryPassword,
+      );
+
+      await _userRepository.updateUser(
+        adminId,
+        scope.condominiumId,
+        updatedUser,
+      );
+
+      await _accountRoleRepository?.saveAccountRole(
+        AccountRoleProfile(
+          uid: updatedUser.id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          active: updatedUser.active,
+          mustChangePassword: true,
+          temporaryPassword: newTemporaryPassword,
+          administratorId: adminId,
+          condominiumId: scope.condominiumId,
+          createdAt: updatedUser.createdAt,
+        ),
+      );
+
+      final updatedUsers = state.users
+          .map((u) => u.id == user.id ? updatedUser : u)
+          .toList();
+
+      _onParentCachesInvalidated?.call(adminId);
+
+      final credentials = ProvisionedUserCredentials(
+        user: updatedUser,
+        temporaryPassword: newTemporaryPassword,
+        condominiumId: scope.condominiumId,
+        condominiumName: state.condominium?.name ?? 'Condomínio',
+        administratorName: state.administrator?.name,
+      );
+
+      if (!mounted) return credentials;
+
+      state = state.copyWith(
+        isSaving: false,
+        users: updatedUsers,
+        clearActionError: true,
+      );
+      return credentials;
+    } catch (e) {
+      if (!mounted) return null;
+      state = state.copyWith(isSaving: false, actionError: _formatError(e));
+      return null;
+    }
+  }
+
+  /// Exclui a conta do condomínio e do sistema, e tenta remover do Firebase Auth
+  /// caso a senha temporária seja conhecida.
+  Future<bool> deleteCondominiumUser(UserModel user) async {
+    final adminId = state.resolvedAdministratorId;
+    if (adminId == null || adminId.isEmpty) return false;
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      await _userRepository.deleteUser(adminId, scope.condominiumId, user.id);
+      await _accountRoleRepository?.deleteAccountRole(user.id);
+
+      final tempPwd = user.temporaryPassword;
+      if (tempPwd != null && tempPwd.isNotEmpty) {
+        try {
+          await _userAuthProvisioner.deleteAuthUserWithPassword(
+            email: user.email,
+            password: tempPwd,
+          );
+        } catch (_) {}
+      }
+
+      final updatedUsers = state.users.where((u) => u.id != user.id).toList();
+
+      _onParentCachesInvalidated?.call(adminId);
+
+      if (!mounted) return true;
+
+      state = state.copyWith(
+        isSaving: false,
+        users: updatedUsers,
+        clearActionError: true,
+      );
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
       state = state.copyWith(isSaving: false, actionError: _formatError(e));
       return false;
     }

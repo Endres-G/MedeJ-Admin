@@ -124,6 +124,7 @@ class AccountsState {
             active: standalone.active,
             role: standalone.role,
             mustChangePassword: standalone.mustChangePassword,
+            temporaryPassword: standalone.temporaryPassword,
             createdAt: standalone.createdAt,
           ),
         ),
@@ -293,10 +294,20 @@ class AccountsController extends StateNotifier<AccountsState> {
                 if (u.email.trim().isNotEmpty) {
                   condoUserEmails.add(u.email.trim().toLowerCase());
                 }
-                final syncedRole = rolesByUid[u.id]?.role;
-                return syncedRole != null && syncedRole != u.role
-                    ? u.copyWith(role: syncedRole)
-                    : u;
+                final roleProfile = rolesByUid[u.id];
+                var enriched = u;
+                if (roleProfile != null) {
+                  if (roleProfile.role != u.role) {
+                    enriched = enriched.copyWith(role: roleProfile.role);
+                  }
+                  if (enriched.temporaryPassword == null &&
+                      roleProfile.temporaryPassword != null) {
+                    enriched = enriched.copyWith(
+                      temporaryPassword: roleProfile.temporaryPassword,
+                    );
+                  }
+                }
+                return enriched;
               }).toList()
                 ..sort(
                   (a, b) =>
@@ -429,6 +440,7 @@ class AccountsController extends StateNotifier<AccountsState> {
                 role: UserRole.admin,
                 active: active,
                 mustChangePassword: true,
+                temporaryPassword: temporaryPassword,
                 createdAt: DateTime.now(),
               );
               await roleRepo.saveAccountRole(profile, isNew: true);
@@ -449,6 +461,7 @@ class AccountsController extends StateNotifier<AccountsState> {
           active: persistedProfile.active,
           role: UserRole.admin,
           mustChangePassword: true,
+          temporaryPassword: temporaryPassword,
           createdAt: persistedProfile.createdAt,
         ),
         temporaryPassword: temporaryPassword,
@@ -536,6 +549,7 @@ class AccountsController extends StateNotifier<AccountsState> {
                 active: active,
                 role: role,
                 mustChangePassword: true,
+                temporaryPassword: temporaryPassword,
               );
               await _userRepository.saveUserWithId(
                 administratorId,
@@ -551,6 +565,7 @@ class AccountsController extends StateNotifier<AccountsState> {
                   role: role,
                   active: active,
                   mustChangePassword: true,
+                  temporaryPassword: temporaryPassword,
                   administratorId: administratorId,
                   condominiumId: condominiumId,
                 ),
@@ -789,6 +804,325 @@ class AccountsController extends StateNotifier<AccountsState> {
       if (!mounted) return true;
 
       state = state.copyWith(isSaving: false, clearActionError: true);
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      state = state.copyWith(
+        isSaving: false,
+        actionError: formatAuthAndFirestoreError(e),
+      );
+      return false;
+    }
+  }
+
+  /// Vincula uma conta existente (geralmente sem condomínio ou transferida)
+  /// a um condomínio específico.
+  Future<bool> linkAccountToCondominium({
+    required AccountOverviewItem item,
+    required String administratorId,
+    required String condominiumId,
+  }) async {
+    final group = state.findGroup(administratorId, condominiumId);
+    if (group == null) {
+      state = state.copyWith(
+        actionError: 'Condomínio de destino não encontrado.',
+      );
+      return false;
+    }
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      final userToSave = item.user.copyWith();
+      await _userRepository.saveUserWithId(
+        administratorId,
+        condominiumId,
+        item.user.id,
+        userToSave,
+      );
+
+      final updatedRoleProfile = AccountRoleProfile(
+        uid: item.user.id,
+        name: item.user.name,
+        email: item.user.email,
+        role: item.user.role,
+        active: item.user.active,
+        mustChangePassword: item.user.mustChangePassword,
+        temporaryPassword: item.user.temporaryPassword,
+        administratorId: administratorId,
+        condominiumId: condominiumId,
+        createdAt: item.user.createdAt,
+      );
+      await _accountRoleRepository?.saveAccountRole(updatedRoleProfile);
+
+      final updatedStandalone = state.standalonePlatformAccounts
+          .where((p) => p.uid != item.user.id)
+          .toList();
+
+      final updatedGroups = state.condominiumGroups.map((g) {
+        if (g.administrator.id == administratorId &&
+            g.condominium.id == condominiumId) {
+          final users = [
+            ...g.users.where((u) => u.id != item.user.id),
+            userToSave,
+          ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          return g.copyWith(users: users);
+        }
+        if (item.administrator?.id == g.administrator.id &&
+            item.condominium?.id == g.condominium.id) {
+          final users = g.users.where((u) => u.id != item.user.id).toList();
+          return g.copyWith(users: users);
+        }
+        return g;
+      }).toList();
+
+      _onCachesInvalidated?.call(administratorId, condominiumId);
+      if (item.administrator != null && item.condominium != null) {
+        _onCachesInvalidated?.call(
+          item.administrator!.id,
+          item.condominium!.id,
+        );
+      }
+
+      if (!mounted) return true;
+
+      state = state.copyWith(
+        isSaving: false,
+        standalonePlatformAccounts: updatedStandalone,
+        condominiumGroups: updatedGroups,
+        clearActionError: true,
+      );
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      state = state.copyWith(
+        isSaving: false,
+        actionError: formatAuthAndFirestoreError(e),
+      );
+      return false;
+    }
+  }
+
+  /// Desvincula a conta do condomínio, tornando-a uma conta sem vínculo (plataforma/livre).
+  Future<bool> unlinkAccountFromCondominium(AccountOverviewItem item) async {
+    if (item.isPlatformStandaloneAccount) return false;
+
+    final adminId = item.administrator!.id;
+    final condoId = item.condominium!.id;
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      await _userRepository.deleteUser(adminId, condoId, item.user.id);
+      final unlinkedProfile = AccountRoleProfile(
+        uid: item.user.id,
+        name: item.user.name,
+        email: item.user.email,
+        role: item.user.role,
+        active: item.user.active,
+        mustChangePassword: item.user.mustChangePassword,
+        temporaryPassword: item.user.temporaryPassword,
+        createdAt: item.user.createdAt,
+      );
+      await _accountRoleRepository?.unlinkAccountRole(item.user.id);
+
+      final updatedGroups = state.condominiumGroups.map((g) {
+        if (g.administrator.id == adminId && g.condominium.id == condoId) {
+          final users = g.users.where((u) => u.id != item.user.id).toList();
+          return g.copyWith(users: users);
+        }
+        return g;
+      }).toList();
+
+      final updatedStandalone = [
+        ...state.standalonePlatformAccounts.where((p) => p.uid != item.user.id),
+        unlinkedProfile,
+      ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+      _onCachesInvalidated?.call(adminId, condoId);
+
+      if (!mounted) return true;
+
+      state = state.copyWith(
+        isSaving: false,
+        condominiumGroups: updatedGroups,
+        standalonePlatformAccounts: updatedStandalone,
+        clearActionError: true,
+      );
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      state = state.copyWith(
+        isSaving: false,
+        actionError: formatAuthAndFirestoreError(e),
+      );
+      return false;
+    }
+  }
+
+  /// Regenera a senha temporária para primeiro acesso da conta.
+  Future<ProvisionedUserCredentials?> regenerateTemporaryPassword({
+    required AccountOverviewItem item,
+    required String newTemporaryPassword,
+  }) async {
+    final validation = validateTemporaryPassword(newTemporaryPassword);
+    if (validation != null) {
+      state = state.copyWith(actionError: validation);
+      return null;
+    }
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      final currentPwd = item.user.temporaryPassword;
+      if (currentPwd != null && currentPwd.isNotEmpty) {
+        try {
+          await _userAuthProvisioner.updateTemporaryPassword(
+            email: item.user.email,
+            currentPassword: currentPwd,
+            newPassword: newTemporaryPassword,
+          );
+        } catch (_) {}
+      }
+
+      final updatedUser = item.user.copyWith(
+        mustChangePassword: true,
+        temporaryPassword: newTemporaryPassword,
+      );
+
+      if (item.isPlatformStandaloneAccount) {
+        final updatedProfile = AccountRoleProfile(
+          uid: item.user.id,
+          name: item.user.name,
+          email: item.user.email,
+          role: item.user.role,
+          active: item.user.active,
+          mustChangePassword: true,
+          temporaryPassword: newTemporaryPassword,
+          createdAt: item.user.createdAt,
+        );
+        await _accountRoleRepository?.saveAccountRole(updatedProfile);
+
+        final updatedStandalone = state.standalonePlatformAccounts
+            .map((p) => p.uid == item.user.id ? updatedProfile : p)
+            .toList();
+
+        final credentials = ProvisionedUserCredentials(
+          user: updatedUser,
+          temporaryPassword: newTemporaryPassword,
+          condominiumId: '',
+          condominiumName: 'Painel Administrativo MedeJá (Global)',
+        );
+
+        if (!mounted) return credentials;
+
+        state = state.copyWith(
+          isSaving: false,
+          standalonePlatformAccounts: updatedStandalone,
+          clearActionError: true,
+        );
+        return credentials;
+      }
+
+      final adminId = item.administrator!.id;
+      final condoId = item.condominium!.id;
+
+      await _userRepository.updateUser(adminId, condoId, updatedUser);
+      await _accountRoleRepository?.saveAccountRole(
+        AccountRoleProfile(
+          uid: updatedUser.id,
+          name: updatedUser.name,
+          email: updatedUser.email,
+          role: updatedUser.role,
+          active: updatedUser.active,
+          mustChangePassword: true,
+          temporaryPassword: newTemporaryPassword,
+          administratorId: adminId,
+          condominiumId: condoId,
+          createdAt: updatedUser.createdAt,
+        ),
+      );
+
+      final updatedGroups = state.condominiumGroups.map((g) {
+        if (g.administrator.id == adminId && g.condominium.id == condoId) {
+          final users = g.users
+              .map((u) => u.id == item.user.id ? updatedUser : u)
+              .toList();
+          return g.copyWith(users: users);
+        }
+        return g;
+      }).toList();
+
+      _onCachesInvalidated?.call(adminId, condoId);
+
+      final credentials = ProvisionedUserCredentials(
+        user: updatedUser,
+        temporaryPassword: newTemporaryPassword,
+        condominiumId: condoId,
+        condominiumName: item.condominium!.name,
+        administratorName: item.administrator!.name,
+      );
+
+      if (!mounted) return credentials;
+
+      state = state.copyWith(
+        isSaving: false,
+        condominiumGroups: updatedGroups,
+        clearActionError: true,
+      );
+      return credentials;
+    } catch (e) {
+      if (!mounted) return null;
+      state = state.copyWith(
+        isSaving: false,
+        actionError: formatAuthAndFirestoreError(e),
+      );
+      return null;
+    }
+  }
+
+  /// Exclui a conta do sistema e, se a senha temporária for conhecida,
+  /// remove também do Firebase Authentication.
+  Future<bool> deleteAccount(AccountOverviewItem item) async {
+    state = state.copyWith(isSaving: true, clearActionError: true);
+
+    try {
+      if (!item.isPlatformStandaloneAccount) {
+        final adminId = item.administrator!.id;
+        final condoId = item.condominium!.id;
+        await _userRepository.deleteUser(adminId, condoId, item.user.id);
+        _onCachesInvalidated?.call(adminId, condoId);
+      }
+
+      await _accountRoleRepository?.deleteAccountRole(item.user.id);
+
+      final tempPwd = item.user.temporaryPassword;
+      if (tempPwd != null && tempPwd.isNotEmpty) {
+        try {
+          await _userAuthProvisioner.deleteAuthUserWithPassword(
+            email: item.user.email,
+            password: tempPwd,
+          );
+        } catch (_) {}
+      }
+
+      final updatedStandalone = state.standalonePlatformAccounts
+          .where((p) => p.uid != item.user.id)
+          .toList();
+
+      final updatedGroups = state.condominiumGroups.map((g) {
+        final users = g.users.where((u) => u.id != item.user.id).toList();
+        return g.copyWith(users: users);
+      }).toList();
+
+      if (!mounted) return true;
+
+      state = state.copyWith(
+        isSaving: false,
+        standalonePlatformAccounts: updatedStandalone,
+        condominiumGroups: updatedGroups,
+        clearActionError: true,
+      );
       return true;
     } catch (e) {
       if (!mounted) return false;

@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mede_ja_admin/features/auth/account_role_datasrc.dart';
 import 'package:mede_ja_admin/features/condominos/condominium_details_controller.dart';
+import 'package:mede_ja_admin/features/contas/accounts_controller.dart';
 import 'package:mede_ja_admin/features/users/user_model.dart';
 import 'package:mede_ja_admin/features/users/user_provisioning_datasrc.dart';
 
 Future<void> showProvisionedCredentialsDialog({
   required BuildContext context,
   required ProvisionedUserCredentials credentials,
+  String? customTitle,
 }) {
   return showDialog<void>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => _ProvisionedCredentialsDialog(credentials: credentials),
+    builder: (_) => _ProvisionedCredentialsDialog(
+      credentials: credentials,
+      customTitle: customTitle,
+    ),
   );
 }
 
@@ -90,8 +96,12 @@ Future<bool> showConfirmPasswordResetDialog({
 
 class _ProvisionedCredentialsDialog extends StatefulWidget {
   final ProvisionedUserCredentials credentials;
+  final String? customTitle;
 
-  const _ProvisionedCredentialsDialog({required this.credentials});
+  const _ProvisionedCredentialsDialog({
+    required this.credentials,
+    this.customTitle,
+  });
 
   @override
   State<_ProvisionedCredentialsDialog> createState() =>
@@ -133,7 +143,9 @@ class _ProvisionedCredentialsDialogState
         children: [
           Icon(Icons.verified_user_outlined, color: colorScheme.primary),
           const SizedBox(width: 10),
-          const Expanded(child: Text('Conta criada com sucesso')),
+          Expanded(
+            child: Text(widget.customTitle ?? 'Conta criada com sucesso'),
+          ),
         ],
       ),
       content: ConstrainedBox(
@@ -162,7 +174,7 @@ class _ProvisionedCredentialsDialogState
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Copie a senha temporária agora. Por segurança, ela não é salva no banco de dados e não poderá ser visualizada novamente após fechar esta janela.',
+                        'Repasse esta senha temporária ao usuário para o primeiro acesso. Enquanto a troca de senha não for realizada, você pode consultar ou regenerar a senha neste painel.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: colorScheme.onTertiaryContainer,
                           fontWeight: FontWeight.w500,
@@ -572,5 +584,532 @@ class _EditUserDialogState extends State<_EditUserDialog> {
         ),
       ],
     );
+  }
+}
+
+Future<bool> showConfirmDeleteAccountDialog({
+  required BuildContext context,
+  required String userName,
+  required String userEmail,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogCtx) {
+      final colorScheme = Theme.of(dialogCtx).colorScheme;
+      return AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: colorScheme.error),
+            const SizedBox(width: 10),
+            const Expanded(child: Text('Excluir conta')),
+          ],
+        ),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 440),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Deseja realmente excluir permanentemente a conta de "$userName"?'),
+              const SizedBox(height: 8),
+              SelectableText(
+                userEmail,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Esta ação desvinculará a conta dos condomínios e revogará os acessos ao aplicativo mobile e ao painel administrativo.',
+                style: Theme.of(dialogCtx).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogCtx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: colorScheme.error,
+              foregroundColor: colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(dialogCtx, true),
+            child: const Text('Excluir conta'),
+          ),
+        ],
+      );
+    },
+  );
+  return confirmed == true;
+}
+
+Future<bool> showConfirmUnlinkAccountDialog({
+  required BuildContext context,
+  required String userName,
+  required String condominiumName,
+}) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (dialogCtx) => AlertDialog(
+      title: const Text('Desvincular do condomínio'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Deseja desvincular a conta de "$userName" do condomínio "$condominiumName"?',
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'A conta continuará existindo no sistema como conta avulsa/sem condomínio, podendo ser vinculada a qualquer outro condomínio no futuro.',
+              style: Theme.of(dialogCtx).textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogCtx, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(dialogCtx, true),
+          child: const Text('Desvincular'),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}
+
+Future<String?> showRegenerateTemporaryPasswordDialog({
+  required BuildContext context,
+  required String userName,
+  required String userEmail,
+}) async {
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) => _RegeneratePasswordDialog(
+      userName: userName,
+      userEmail: userEmail,
+    ),
+  );
+}
+
+class _RegeneratePasswordDialog extends StatefulWidget {
+  final String userName;
+  final String userEmail;
+
+  const _RegeneratePasswordDialog({
+    required this.userName,
+    required this.userEmail,
+  });
+
+  @override
+  State<_RegeneratePasswordDialog> createState() =>
+      _RegeneratePasswordDialogState();
+}
+
+class _RegeneratePasswordDialogState extends State<_RegeneratePasswordDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _passwordController;
+  bool _obscurePassword = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _passwordController = TextEditingController(
+      text: generateTemporaryPassword(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  void _regenerate() {
+    setState(() {
+      _passwordController.text = generateTemporaryPassword();
+      _obscurePassword = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Row(
+        children: [
+          Icon(Icons.password_outlined),
+          SizedBox(width: 10),
+          Expanded(child: Text('Regenerar senha temporária')),
+        ],
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Defina uma nova senha temporária de primeiro acesso para:'),
+              const SizedBox(height: 6),
+              Text(
+                '${widget.userName} (${widget.userEmail})',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 16),
+              TextFormField(
+                controller: _passwordController,
+                obscureText: _obscurePassword,
+                style: const TextStyle(
+                  fontFamily: 'monospace',
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.2,
+                ),
+                decoration: InputDecoration(
+                  labelText: 'Nova senha temporária *',
+                  helperText: 'Mínimo de 8 caracteres com letras e números.',
+                  prefixIcon: const Icon(Icons.key_outlined),
+                  border: const OutlineInputBorder(),
+                  suffixIcon: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        tooltip: 'Gerar outra senha',
+                        onPressed: _regenerate,
+                        icon: const Icon(Icons.autorenew),
+                      ),
+                      IconButton(
+                        tooltip: _obscurePassword
+                            ? 'Mostrar senha'
+                            : 'Ocultar senha',
+                        onPressed: () {
+                          setState(() {
+                            _obscurePassword = !_obscurePassword;
+                          });
+                        },
+                        icon: Icon(
+                          _obscurePassword
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                validator: validateTemporaryPassword,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Ao confirmar, a senha temporária será atualizada e exibida para você copiar e repassar ao usuário.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: () {
+            if (_formKey.currentState!.validate()) {
+              Navigator.pop(context, _passwordController.text.trim());
+            }
+          },
+          child: const Text('Regenerar senha'),
+        ),
+      ],
+    );
+  }
+}
+
+Future<AccountRoleProfile?> showSelectAccountToLinkDialog({
+  required BuildContext context,
+  required String condominiumName,
+  required List<AccountRoleProfile> availableAccounts,
+}) async {
+  return showDialog<AccountRoleProfile>(
+    context: context,
+    builder: (ctx) => _SelectAccountToLinkDialog(
+      condominiumName: condominiumName,
+      availableAccounts: availableAccounts,
+    ),
+  );
+}
+
+class _SelectAccountToLinkDialog extends StatefulWidget {
+  final String condominiumName;
+  final List<AccountRoleProfile> availableAccounts;
+
+  const _SelectAccountToLinkDialog({
+    required this.condominiumName,
+    required this.availableAccounts,
+  });
+
+  @override
+  State<_SelectAccountToLinkDialog> createState() =>
+      _SelectAccountToLinkDialogState();
+}
+
+class _SelectAccountToLinkDialogState
+    extends State<_SelectAccountToLinkDialog> {
+  AccountRoleProfile? _selected;
+  String _search = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _search.trim().toLowerCase();
+    final filtered = widget.availableAccounts.where((a) {
+      if (query.isEmpty) return true;
+      return a.name.toLowerCase().contains(query) ||
+          a.email.toLowerCase().contains(query);
+    }).toList();
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.link_outlined),
+          const SizedBox(width: 10),
+          Expanded(child: Text('Vincular conta a ${widget.condominiumName}')),
+        ],
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 420),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Selecione uma conta existente sem vínculo para associar ao condomínio:',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              onChanged: (v) => setState(() => _search = v),
+              decoration: const InputDecoration(
+                hintText: 'Buscar por nome ou e-mail...',
+                prefixIcon: Icon(Icons.search, size: 20),
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (filtered.isEmpty)
+              const Expanded(
+                child: Center(
+                  child: Text('Nenhuma conta disponível para vinculação.'),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: filtered.length,
+                  itemBuilder: (ctx, index) {
+                    final item = filtered[index];
+                    final isSelected = _selected?.uid == item.uid;
+                    return ListTile(
+                      dense: true,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      selected: isSelected,
+                      selectedTileColor: Theme.of(context)
+                          .colorScheme
+                          .primaryContainer
+                          .withValues(alpha: 0.35),
+                      leading: CircleAvatar(
+                        child: Text(
+                          item.name.isNotEmpty
+                              ? item.name[0].toUpperCase()
+                              : '?',
+                        ),
+                      ),
+                      title: Text(
+                        item.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text('${item.email} • ${item.role.shortLabel}'),
+                      trailing: isSelected
+                          ? const Icon(Icons.check_circle, color: Colors.green)
+                          : null,
+                      onTap: () {
+                        setState(() {
+                          _selected = item;
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _selected == null
+              ? null
+              : () => Navigator.pop(context, _selected),
+          child: const Text('Vincular conta'),
+        ),
+      ],
+    );
+  }
+}
+
+Future<CondominiumAccountGroup?> showSelectCondominiumToLinkDialog({
+  required BuildContext context,
+  required String accountName,
+  required List<CondominiumAccountGroup> condominiumGroups,
+}) async {
+  return showDialog<CondominiumAccountGroup>(
+    context: context,
+    builder: (ctx) => _SelectCondominiumToLinkDialog(
+      accountName: accountName,
+      condominiumGroups: condominiumGroups,
+    ),
+  );
+}
+
+class _SelectCondominiumToLinkDialog extends StatefulWidget {
+  final String accountName;
+  final List<CondominiumAccountGroup> condominiumGroups;
+
+  const _SelectCondominiumToLinkDialog({
+    required this.accountName,
+    required this.condominiumGroups,
+  });
+
+  @override
+  State<_SelectCondominiumToLinkDialog> createState() =>
+      _SelectCondominiumToLinkDialogState();
+}
+
+class _SelectCondominiumToLinkDialogState
+    extends State<_SelectCondominiumToLinkDialog> {
+  CondominiumAccountGroup? _selected;
+  String _search = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _search.trim().toLowerCase();
+    final filtered = widget.condominiumGroups.where((g) {
+      if (query.isEmpty) return true;
+      return g.condominium.name.toLowerCase().contains(query) ||
+          g.administrator.name.toLowerCase().contains(query);
+    }).toList();
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          const Icon(Icons.apartment_outlined),
+          const SizedBox(width: 10),
+          Expanded(child: Text('Vincular "${widget.accountName}"')),
+        ],
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 420),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Escolha o condomínio ao qual esta conta será vinculada:',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              onChanged: (v) => setState(() => _search = v),
+              decoration: const InputDecoration(
+                hintText: 'Buscar por condomínio ou administradora...',
+                prefixIcon: Icon(Icons.search, size: 20),
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (filtered.isEmpty)
+              const Expanded(
+                child: Center(
+                  child: Text('Nenhum condomínio encontrado.'),
+                ),
+              )
+            else
+              Expanded(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: filtered.length,
+                  itemBuilder: (ctx, index) {
+                    final item = filtered[index];
+                    final isSelected =
+                        _selected?.condominium.id == item.condominium.id &&
+                        _selected?.administrator.id == item.administrator.id;
+                    return ListTile(
+                      dense: true,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      selected: isSelected,
+                      selectedTileColor: Theme.of(context)
+                          .colorScheme
+                          .primaryContainer
+                          .withValues(alpha: 0.35),
+                      leading: const CircleAvatar(
+                        child: Icon(Icons.apartment_outlined, size: 20),
+                      ),
+                      title: Text(
+                        item.condominium.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        '${item.administrator.name} • ${_pluralAccounts(item.totalUsers)}',
+                      ),
+                      trailing: isSelected
+                          ? const Icon(Icons.check_circle, color: Colors.green)
+                          : null,
+                      onTap: () {
+                        setState(() {
+                          _selected = item;
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          onPressed: _selected == null
+              ? null
+              : () => Navigator.pop(context, _selected),
+          child: const Text('Vincular a este condomínio'),
+        ),
+      ],
+    );
+  }
+
+  String _pluralAccounts(int count) {
+    if (count == 0) return 'Sem contas';
+    if (count == 1) return '1 conta';
+    return '$count contas';
   }
 }

@@ -274,6 +274,34 @@ class _InMemoryAccountRoleRepo implements AccountRoleRepository {
   }
 
   @override
+  Future<void> deleteAccountRole(String uid) async {
+    profilesByUid.remove(uid);
+  }
+
+  @override
+  Future<void> unlinkAccountRole(String uid) async {
+    final existing = profilesByUid[uid];
+    if (existing != null) {
+      profilesByUid[uid] = existing.copyWith(clearScope: true);
+    }
+  }
+
+  @override
+  Future<void> linkAccountRole({
+    required String uid,
+    required String administratorId,
+    required String condominiumId,
+  }) async {
+    final existing = profilesByUid[uid];
+    if (existing != null) {
+      profilesByUid[uid] = existing.copyWith(
+        administratorId: administratorId,
+        condominiumId: condominiumId,
+      );
+    }
+  }
+
+  @override
   Future<AccountRoleProfile> resolveOrBootstrapSessionProfile({
     required String uid,
     required String email,
@@ -315,6 +343,19 @@ class _FakeUserAuthProvisioner implements UserAuthProvisioner {
   Future<void> sendPasswordResetEmail(String email) async {
     resetEmailsSent.add(email);
   }
+
+  @override
+  Future<void> updateTemporaryPassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) async {}
+
+  @override
+  Future<void> deleteAuthUserWithPassword({
+    required String email,
+    required String password,
+  }) async {}
 }
 
 class _FakeFirebaseUser implements User {
@@ -766,6 +807,110 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(authProvisioner.resetEmailsSent, ['marina@solar.com']);
+    },
+  );
+
+  test(
+    'AccountsController permite vincular conta avulsa, desvincular, regenerar senha temporária e excluir conta',
+    () async {
+      final adminRepo = _InMemoryAdminRepo([
+        const AdministratorModel(
+          id: 'adm-1',
+          name: 'Administradora Horizonte',
+          email: 'contato@horizonte.com',
+          active: true,
+        ),
+      ]);
+      final condoRepo = _InMemoryCondoRepo({
+        'adm-1': [
+          const CondominiumModel(
+            id: 'condo-1',
+            name: 'Residencial Solar',
+            address: 'Av. Brasil, 100',
+            active: true,
+          ),
+        ],
+      });
+      final userRepo = _InMemoryUserRepo({});
+      final roleRepo = _InMemoryAccountRoleRepo({
+        'usr-standalone-1': const AccountRoleProfile(
+          uid: 'usr-standalone-1',
+          name: 'Zelador Avulso',
+          email: 'avulso@medeja.com',
+          role: UserRole.user,
+          active: true,
+          mustChangePassword: true,
+          temporaryPassword: 'InitTemp123@',
+        ),
+      });
+      final authProvisioner = _FakeUserAuthProvisioner();
+
+      final controller = AccountsController(
+        adminRepository: adminRepo,
+        condominiumRepository: condoRepo,
+        userRepository: userRepo,
+        accountRoleRepository: roleRepo,
+        userAuthProvisioner: authProvisioner,
+      );
+
+      await controller.load();
+
+      // Conta inicia como standalone/sem condomínio
+      expect(controller.state.standalonePlatformAccounts.length, 1);
+      final standaloneItem = controller.state.allAccounts.firstWhere(
+        (a) => a.user.id == 'usr-standalone-1',
+      );
+      expect(standaloneItem.isPlatformStandaloneAccount, isTrue);
+      expect(standaloneItem.user.temporaryPassword, 'InitTemp123@');
+
+      // 1. Vincula ao condomínio
+      final linkOk = await controller.linkAccountToCondominium(
+        item: standaloneItem,
+        administratorId: 'adm-1',
+        condominiumId: 'condo-1',
+      );
+      expect(linkOk, isTrue);
+      expect(controller.state.standalonePlatformAccounts.isEmpty, isTrue);
+      expect(controller.state.condominiumGroups.first.users.length, 1);
+      expect(
+        controller.state.condominiumGroups.first.users.first.name,
+        'Zelador Avulso',
+      );
+
+      // 2. Regenera senha temporária
+      final linkedItem = controller.state.allAccounts.firstWhere(
+        (a) => a.user.id == 'usr-standalone-1',
+      );
+      final newCreds = await controller.regenerateTemporaryPassword(
+        item: linkedItem,
+        newTemporaryPassword: 'NewSecret999@',
+      );
+      expect(newCreds, isNotNull);
+      expect(newCreds!.temporaryPassword, 'NewSecret999@');
+      expect(
+        controller.state.condominiumGroups.first.users.first.temporaryPassword,
+        'NewSecret999@',
+      );
+
+      // 3. Desvincula do condomínio
+      final updatedLinkedItem = controller.state.allAccounts.firstWhere(
+        (a) => a.user.id == 'usr-standalone-1',
+      );
+      final unlinkOk = await controller.unlinkAccountFromCondominium(
+        updatedLinkedItem,
+      );
+      expect(unlinkOk, isTrue);
+      expect(controller.state.condominiumGroups.first.users.isEmpty, isTrue);
+      expect(controller.state.standalonePlatformAccounts.length, 1);
+
+      // 4. Exclui a conta
+      final unlinkedItem = controller.state.allAccounts.firstWhere(
+        (a) => a.user.id == 'usr-standalone-1',
+      );
+      final deleteOk = await controller.deleteAccount(unlinkedItem);
+      expect(deleteOk, isTrue);
+      expect(controller.state.allAccounts.isEmpty, isTrue);
+      expect(roleRepo.profilesByUid.containsKey('usr-standalone-1'), isFalse);
     },
   );
 }

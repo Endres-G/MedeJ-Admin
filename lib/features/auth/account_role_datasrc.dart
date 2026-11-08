@@ -9,6 +9,7 @@ class AccountRoleProfile {
   final UserRole role;
   final bool active;
   final bool mustChangePassword;
+  final String? temporaryPassword;
   final String? administratorId;
   final String? condominiumId;
   final DateTime? createdAt;
@@ -20,6 +21,7 @@ class AccountRoleProfile {
     required this.role,
     this.active = true,
     this.mustChangePassword = false,
+    this.temporaryPassword,
     this.administratorId,
     this.condominiumId,
     this.createdAt,
@@ -50,6 +52,7 @@ class AccountRoleProfile {
       role: UserRole.fromMap(map, fallback: UserRole.user),
       active: map['active'] as bool? ?? true,
       mustChangePassword: map['mustChangePassword'] as bool? ?? false,
+      temporaryPassword: map['temporaryPassword'] as String?,
       administratorId: map['administratorId'] as String?,
       condominiumId: map['condominiumId'] as String?,
       createdAt: parsedCreatedAt,
@@ -64,6 +67,8 @@ class AccountRoleProfile {
       'isAdmin': isAdmin,
       'active': active,
       'mustChangePassword': mustChangePassword,
+      if (mustChangePassword && temporaryPassword != null && temporaryPassword!.isNotEmpty)
+        'temporaryPassword': temporaryPassword,
       'administratorId': administratorId,
       'condominiumId': condominiumId,
       if (createdAt != null) 'createdAt': createdAt,
@@ -77,6 +82,8 @@ class AccountRoleProfile {
     UserRole? role,
     bool? active,
     bool? mustChangePassword,
+    String? temporaryPassword,
+    bool clearTemporaryPassword = false,
     String? administratorId,
     bool clearScope = false,
     String? condominiumId,
@@ -89,6 +96,9 @@ class AccountRoleProfile {
       role: role ?? this.role,
       active: active ?? this.active,
       mustChangePassword: mustChangePassword ?? this.mustChangePassword,
+      temporaryPassword: clearTemporaryPassword
+          ? null
+          : (temporaryPassword ?? this.temporaryPassword),
       administratorId: clearScope
           ? null
           : (administratorId ?? this.administratorId),
@@ -136,6 +146,33 @@ class AccountRoleFirestoreDataSource {
       if (isNew) 'createdAt': FieldValue.serverTimestamp(),
     };
     await _collection.doc(profile.uid).set(payload, SetOptions(merge: true));
+  }
+
+  Future<void> deleteAccountRole(String uid) async {
+    if (uid.trim().isEmpty) return;
+    await _collection.doc(uid).delete();
+  }
+
+  Future<void> unlinkAccountRole(String uid) async {
+    if (uid.trim().isEmpty) return;
+    await _collection.doc(uid).update({
+      'administratorId': FieldValue.delete(),
+      'condominiumId': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> linkAccountRole({
+    required String uid,
+    required String administratorId,
+    required String condominiumId,
+  }) async {
+    if (uid.trim().isEmpty) return;
+    await _collection.doc(uid).set({
+      'administratorId': administratorId,
+      'condominiumId': condominiumId,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Future<AccountRoleProfile> resolveOrBootstrapSessionProfile({
@@ -296,6 +333,26 @@ class AccountRoleRepository {
     bool isNew = false,
   }) {
     return _dataSource.saveAccountRole(profile, isNew: isNew);
+  }
+
+  Future<void> deleteAccountRole(String uid) {
+    return _dataSource.deleteAccountRole(uid);
+  }
+
+  Future<void> unlinkAccountRole(String uid) {
+    return _dataSource.unlinkAccountRole(uid);
+  }
+
+  Future<void> linkAccountRole({
+    required String uid,
+    required String administratorId,
+    required String condominiumId,
+  }) {
+    return _dataSource.linkAccountRole(
+      uid: uid,
+      administratorId: administratorId,
+      condominiumId: condominiumId,
+    );
   }
 
   Future<AccountRoleProfile> resolveOrBootstrapSessionProfile({
