@@ -70,12 +70,14 @@ class ReadingRepository {
     required String administratorName,
     required String condominiumId,
     required String condominiumName,
+    DateTime? referenceMonth,
   }) {
     return _dataSource.getCondominiumReadingsOverview(
       administratorId: administratorId,
       administratorName: administratorName,
       condominiumId: condominiumId,
       condominiumName: condominiumName,
+      referenceMonth: referenceMonth,
     );
   }
 

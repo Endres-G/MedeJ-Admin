@@ -27,6 +27,7 @@ class ReadingsState {
   final String? selectedAdministratorId;
   final String? selectedCondominiumId;
   final MeterType selectedMeterType;
+  final DateTime? selectedMonth;
   final CondominiumReadingsOverview? overview;
   final String? error;
 
@@ -38,9 +39,13 @@ class ReadingsState {
     this.selectedAdministratorId,
     this.selectedCondominiumId,
     this.selectedMeterType = MeterType.gas,
+    this.selectedMonth,
     this.overview,
     this.error,
   });
+
+  DateTime get currentMonth =>
+      selectedMonth ?? DateTime(DateTime.now().year, DateTime.now().month, 1);
 
   AdministratorModel? get selectedAdministrator {
     if (selectedAdministratorId == null) return null;
@@ -68,6 +73,7 @@ class ReadingsState {
     String? selectedAdministratorId,
     String? selectedCondominiumId,
     MeterType? selectedMeterType,
+    DateTime? selectedMonth,
     CondominiumReadingsOverview? overview,
     bool clearOverview = false,
     String? error,
@@ -83,6 +89,7 @@ class ReadingsState {
       selectedCondominiumId:
           selectedCondominiumId ?? this.selectedCondominiumId,
       selectedMeterType: selectedMeterType ?? this.selectedMeterType,
+      selectedMonth: selectedMonth ?? this.selectedMonth,
       overview: clearOverview ? null : (overview ?? this.overview),
       error: clearError ? null : (error ?? this.error),
     );
@@ -139,7 +146,11 @@ class ReadingsController extends StateNotifier<ReadingsState> {
       );
 
       if (sortedCondos.isNotEmpty) {
-        await loadReadings(firstAdmin.id, sortedCondos.first.id);
+        await loadReadings(
+          firstAdmin.id,
+          sortedCondos.first.id,
+          referenceMonth: state.currentMonth,
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -177,7 +188,11 @@ class ReadingsController extends StateNotifier<ReadingsState> {
       );
 
       if (firstCondoId != null) {
-        await loadReadings(administratorId, firstCondoId);
+        await loadReadings(
+          administratorId,
+          firstCondoId,
+          referenceMonth: state.currentMonth,
+        );
       }
     } catch (e) {
       if (!mounted) return;
@@ -190,19 +205,25 @@ class ReadingsController extends StateNotifier<ReadingsState> {
     if (state.selectedCondominiumId == condominiumId) return;
     state = state.copyWith(selectedCondominiumId: condominiumId);
     if (state.selectedAdministratorId != null) {
-      await loadReadings(state.selectedAdministratorId!, condominiumId);
+      await loadReadings(
+        state.selectedAdministratorId!,
+        condominiumId,
+        referenceMonth: state.currentMonth,
+      );
     }
   }
 
   Future<void> loadReadings(
     String administratorId,
-    String condominiumId,
-  ) async {
+    String condominiumId, {
+    DateTime? referenceMonth,
+  }) async {
     if (!mounted) return;
     state = state.copyWith(isLoadingReadings: true, clearError: true);
     try {
       final admin = state.selectedAdministrator;
       final condo = state.selectedCondominium;
+      final targetMonth = referenceMonth ?? state.currentMonth;
 
       final overview =
           await _readingRepository.getCondominiumReadingsOverview(
@@ -210,6 +231,7 @@ class ReadingsController extends StateNotifier<ReadingsState> {
         administratorName: admin?.name ?? 'Administradora',
         condominiumId: condominiumId,
         condominiumName: condo?.name ?? 'Condomínio',
+        referenceMonth: targetMonth,
       );
 
       if (!mounted) return;
@@ -224,6 +246,36 @@ class ReadingsController extends StateNotifier<ReadingsState> {
         error: 'Erro ao carregar leituras: ${e.toString()}',
       );
     }
+  }
+
+  Future<void> setMonth(DateTime month) async {
+    if (!mounted) return;
+    final normalized = DateTime(month.year, month.month, 1);
+    if (state.currentMonth.year == normalized.year &&
+        state.currentMonth.month == normalized.month) {
+      return;
+    }
+    state = state.copyWith(selectedMonth: normalized);
+    if (state.selectedAdministratorId != null &&
+        state.selectedCondominiumId != null) {
+      await loadReadings(
+        state.selectedAdministratorId!,
+        state.selectedCondominiumId!,
+        referenceMonth: normalized,
+      );
+    }
+  }
+
+  void previousMonth() {
+    final prev =
+        DateTime(state.currentMonth.year, state.currentMonth.month - 1, 1);
+    setMonth(prev);
+  }
+
+  void nextMonth() {
+    final next =
+        DateTime(state.currentMonth.year, state.currentMonth.month + 1, 1);
+    setMonth(next);
   }
 
   void setMeterType(MeterType type) {
@@ -258,6 +310,7 @@ class ReadingsController extends StateNotifier<ReadingsState> {
       await loadReadings(
         state.selectedAdministratorId!,
         state.selectedCondominiumId!,
+        referenceMonth: state.currentMonth,
       );
     } else {
       await init();

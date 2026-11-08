@@ -8,20 +8,37 @@ class ApartmentReadingItem {
   final ApartmentModel apartment;
   final BlockModel block;
   final ReadingModel? latestGasReading;
+  final ReadingModel? previousGasReading;
   final ReadingModel? latestWaterReading;
+  final ReadingModel? previousWaterReading;
   final List<ReadingModel> history;
 
   const ApartmentReadingItem({
     required this.apartment,
     required this.block,
     this.latestGasReading,
+    this.previousGasReading,
     this.latestWaterReading,
+    this.previousWaterReading,
     this.history = const [],
   });
 
-  /// Retorna a leitura mais recente de acordo com o tipo solicitado.
+  /// Retorna a leitura do mês de referência para o medidor solicitado.
   ReadingModel? latestReadingFor(MeterType type) =>
       type == MeterType.water ? latestWaterReading : latestGasReading;
+
+  /// Retorna a leitura anterior à do mês de referência (se houver).
+  ReadingModel? previousReadingFor(MeterType type) =>
+      type == MeterType.water ? previousWaterReading : previousGasReading;
+
+  /// Retorna o consumo calculado no mês (Atual - Anterior) em m³.
+  double? consumptionFor(MeterType type) {
+    final current = latestReadingFor(type)?.numericValue;
+    final previous = previousReadingFor(type)?.numericValue;
+    if (current == null || previous == null) return null;
+    final diff = current - previous;
+    return diff >= 0 ? diff : null;
+  }
 
   /// Getter de compatibilidade (retorna a de Gás por padrão).
   ReadingModel? get latestReading => latestGasReading;
@@ -35,6 +52,7 @@ class CondominiumReadingsOverview {
   final String condominiumName;
   final String administratorId;
   final String administratorName;
+  final DateTime referenceMonth;
   final List<ApartmentReadingItem> apartments;
   final DateTime? latestGasReadingDate;
   final DateTime? latestWaterReadingDate;
@@ -44,6 +62,7 @@ class CondominiumReadingsOverview {
     required this.condominiumName,
     required this.administratorId,
     required this.administratorName,
+    required this.referenceMonth,
     required this.apartments,
     this.latestGasReadingDate,
     this.latestWaterReadingDate,
@@ -177,13 +196,22 @@ class ReadingFirestoreDataSource {
     return all;
   }
 
-  /// Busca a visão consolidada de leituras de todos os apartamentos de um condomínio (Gás e Água)
+  /// Busca a visão consolidada de leituras de todos os apartamentos de um condomínio para um mês de referência (Gás e Água)
   Future<CondominiumReadingsOverview> getCondominiumReadingsOverview({
     required String administratorId,
     required String administratorName,
     required String condominiumId,
     required String condominiumName,
+    DateTime? referenceMonth,
   }) async {
+    final now = DateTime.now();
+    final targetMonth = referenceMonth != null
+        ? DateTime(referenceMonth.year, referenceMonth.month, 1)
+        : DateTime(now.year, now.month, 1);
+    final startOfMonth = DateTime(targetMonth.year, targetMonth.month, 1);
+    final endOfMonth = DateTime(targetMonth.year, targetMonth.month + 1, 1)
+        .subtract(const Duration(milliseconds: 1));
+
     final blocksCol = _firestore
         .collection('administrators')
         .doc(administratorId)
@@ -215,7 +243,7 @@ class ReadingFirestoreDataSource {
           condominiumId: condominiumId,
           blockId: block.id,
           apartmentId: apt.id,
-        ).orderBy('readAt', descending: true).limit(20).get();
+        ).orderBy('readAt', descending: true).limit(40).get();
 
         final recentReadings = readingsQuery.docs.map((d) {
           return ReadingModel.fromFirestore(
@@ -231,28 +259,41 @@ class ReadingFirestoreDataSource {
           );
         }).toList();
 
-        ReadingModel? latestGas;
-        ReadingModel? latestWater;
+        ReadingModel? latestGasInMonth;
+        ReadingModel? prevGas;
+        ReadingModel? latestWaterInMonth;
+        ReadingModel? prevWater;
 
         for (final r in recentReadings) {
-          if (r.meterType == MeterType.gas && latestGas == null) {
-            latestGas = r;
-          } else if (r.meterType == MeterType.water && latestWater == null) {
-            latestWater = r;
+          final inMonth =
+              !r.readAt.isBefore(startOfMonth) && !r.readAt.isAfter(endOfMonth);
+          final beforeMonth = r.readAt.isBefore(startOfMonth);
+
+          if (r.meterType == MeterType.gas) {
+            if (inMonth && latestGasInMonth == null) {
+              latestGasInMonth = r;
+            } else if (beforeMonth && prevGas == null) {
+              prevGas = r;
+            }
+          } else if (r.meterType == MeterType.water) {
+            if (inMonth && latestWaterInMonth == null) {
+              latestWaterInMonth = r;
+            } else if (beforeMonth && prevWater == null) {
+              prevWater = r;
+            }
           }
-          if (latestGas != null && latestWater != null) break;
         }
 
-        if (latestGas != null) {
+        if (latestGasInMonth != null) {
           if (globalLatestGasDate == null ||
-              latestGas.readAt.isAfter(globalLatestGasDate)) {
-            globalLatestGasDate = latestGas.readAt;
+              latestGasInMonth.readAt.isAfter(globalLatestGasDate)) {
+            globalLatestGasDate = latestGasInMonth.readAt;
           }
         }
-        if (latestWater != null) {
+        if (latestWaterInMonth != null) {
           if (globalLatestWaterDate == null ||
-              latestWater.readAt.isAfter(globalLatestWaterDate)) {
-            globalLatestWaterDate = latestWater.readAt;
+              latestWaterInMonth.readAt.isAfter(globalLatestWaterDate)) {
+            globalLatestWaterDate = latestWaterInMonth.readAt;
           }
         }
 
@@ -260,8 +301,10 @@ class ReadingFirestoreDataSource {
           ApartmentReadingItem(
             apartment: apt,
             block: block,
-            latestGasReading: latestGas,
-            latestWaterReading: latestWater,
+            latestGasReading: latestGasInMonth,
+            previousGasReading: prevGas,
+            latestWaterReading: latestWaterInMonth,
+            previousWaterReading: prevWater,
           ),
         );
       }
@@ -272,6 +315,7 @@ class ReadingFirestoreDataSource {
       condominiumName: condominiumName,
       administratorId: administratorId,
       administratorName: administratorName,
+      referenceMonth: targetMonth,
       apartments: apartmentItems,
       latestGasReadingDate: globalLatestGasDate,
       latestWaterReadingDate: globalLatestWaterDate,

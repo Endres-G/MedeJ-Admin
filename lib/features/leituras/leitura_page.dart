@@ -49,12 +49,12 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
             children: [
               _buildHeader(context, state, isSmall),
               const SizedBox(height: 20),
-              _buildMeterTypeSelector(context, state),
+              _buildControlsBar(context, state, isSmall),
               const SizedBox(height: 20),
               _buildSelectors(context, state, isSmall),
               const SizedBox(height: 24),
               if (state.overview != null) ...[
-                _buildSummaryCards(context, state.overview!, state.selectedMeterType),
+                _buildSummaryCards(context, state.overview!, state.selectedMeterType, state.currentMonth),
                 const SizedBox(height: 24),
                 _buildFilters(context, state.overview!, isSmall),
                 const SizedBox(height: 16),
@@ -117,11 +117,19 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
                         : Colors.blue.withValues(alpha: 0.1),
                     side: BorderSide.none,
                   ),
+                  Chip(
+                    avatar: const Icon(Icons.calendar_today_outlined, size: 14),
+                    label: Text(
+                      'Competência: ${_formatMonthYear(state.currentMonth)}',
+                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                    ),
+                    side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+                  ),
                 ],
               ),
               const SizedBox(height: 4),
               Text(
-                'Acompanhamento em tempo real dos registros de gás e água enviados pelo aplicativo móvel.',
+                'Acompanhamento em tempo real dos registros de medição e apuração de consumo por competência.',
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
             ],
@@ -132,6 +140,33 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
           onPressed: () => ref.read(readingsControllerProvider.notifier).refresh(),
           icon: const Icon(Icons.refresh),
         ),
+      ],
+    );
+  }
+
+  Widget _buildControlsBar(BuildContext context, ReadingsState state, bool isSmall) {
+    final meterSelector = _buildMeterTypeSelector(context, state);
+    final monthSelector = _buildMonthSelector(context, state);
+
+    if (isSmall) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          meterSelector,
+          const SizedBox(height: 12),
+          monthSelector,
+        ],
+      );
+    }
+
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 16,
+      runSpacing: 12,
+      children: [
+        meterSelector,
+        monthSelector,
       ],
     );
   }
@@ -157,6 +192,71 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
         }
       },
     );
+  }
+
+  Widget _buildMonthSelector(BuildContext context, ReadingsState state) {
+    final month = state.currentMonth;
+    final isCurrentMonth = month.year == DateTime.now().year &&
+        month.month == DateTime.now().month;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outlineVariant,
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            tooltip: 'Mês anterior',
+            visualDensity: VisualDensity.compact,
+            onPressed: () =>
+                ref.read(readingsControllerProvider.notifier).previousMonth(),
+          ),
+          const SizedBox(width: 4),
+          const Icon(Icons.calendar_month_outlined, size: 18),
+          const SizedBox(width: 8),
+          Text(
+            _formatMonthYear(month),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            tooltip: 'Próximo mês',
+            visualDensity: VisualDensity.compact,
+            onPressed: () =>
+                ref.read(readingsControllerProvider.notifier).nextMonth(),
+          ),
+          if (!isCurrentMonth) ...[
+            const SizedBox(width: 4),
+            TextButton(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              onPressed: () => ref
+                  .read(readingsControllerProvider.notifier)
+                  .setMonth(DateTime.now()),
+              child: const Text('Mês atual'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  String _formatMonthYear(DateTime dt) {
+    const months = [
+      'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+    ];
+    return '${months[dt.month - 1]} / ${dt.year}';
   }
 
   Widget _buildSelectors(
@@ -233,6 +333,7 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
     BuildContext context,
     CondominiumReadingsOverview overview,
     MeterType meterType,
+    DateTime month,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
@@ -241,6 +342,7 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
     final coverage = overview.coverageFor(meterType);
     final latestDate = overview.latestDateFor(meterType);
     final isGas = meterType == MeterType.gas;
+    final monthName = _formatMonthYear(month);
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -266,7 +368,7 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
             SizedBox(
               width: cardWidth,
               child: _MetricCard(
-                title: 'Medições (${meterType.label})',
+                title: 'Medições em $monthName',
                 value: '$measured',
                 subtitle: '${(coverage * 100).toStringAsFixed(1)}% do condomínio',
                 icon: isGas ? Icons.local_fire_department_outlined : Icons.water_drop_outlined,
@@ -276,9 +378,9 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
             SizedBox(
               width: cardWidth,
               child: _MetricCard(
-                title: 'Leituras Pendentes',
+                title: 'Pendentes no Mês',
                 value: '$pending',
-                subtitle: 'Aguardando registro',
+                subtitle: 'Aguardando registro em $monthName',
                 icon: Icons.pending_outlined,
                 color: pending > 0 ? Colors.orange : Colors.grey,
               ),
@@ -289,7 +391,7 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
                 title: 'Última Transmissão',
                 value: latestDate != null
                     ? dateFormat.format(latestDate)
-                    : 'Nenhuma',
+                    : 'Nenhuma no mês',
                 subtitle: 'Sincronizado via mobile',
                 icon: Icons.cloud_done_outlined,
                 color: colorScheme.secondary,
@@ -420,14 +522,18 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
           columns: [
             const DataColumn(label: Text('Bloco')),
             const DataColumn(label: Text('Apartamento')),
-            const DataColumn(label: Text('Status')),
-            DataColumn(label: Text('Leitura de ${meterType.label} (${meterType.unit})')),
-            const DataColumn(label: Text('Data / Hora')),
+            const DataColumn(label: Text('Status no Mês')),
+            DataColumn(label: Text('Leitura Anterior (${meterType.unit})')),
+            DataColumn(label: Text('Leitura do Mês (${meterType.unit})')),
+            DataColumn(label: Text('Consumo no Mês (${meterType.unit})')),
+            const DataColumn(label: Text('Data da Leitura')),
             const DataColumn(label: Text('Foto')),
             const DataColumn(label: Text('Ações')),
           ],
           rows: filtered.map((item) {
             final reading = item.latestReadingFor(meterType);
+            final prevReading = item.previousReadingFor(meterType);
+            final consumption = item.consumptionFor(meterType);
             final isDone = item.hasReadingFor(meterType);
 
             return DataRow(
@@ -453,12 +559,39 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
                 ),
                 DataCell(
                   Text(
-                    reading != null ? '${reading.readingValue} ${meterType.unit}' : '—',
+                    prevReading != null ? '${prevReading.readingValue} ${meterType.unit}' : '—',
                     style: TextStyle(
-                      fontWeight: reading != null ? FontWeight.bold : FontWeight.normal,
-                      fontSize: 15,
+                      color: prevReading != null ? colorScheme.onSurfaceVariant : colorScheme.outline,
                     ),
                   ),
+                ),
+                DataCell(
+                  Text(
+                    reading != null ? '${reading.readingValue} ${meterType.unit}' : 'Pendente',
+                    style: TextStyle(
+                      fontWeight: reading != null ? FontWeight.bold : FontWeight.normal,
+                      color: reading != null ? null : Colors.orange,
+                      fontSize: 14,
+                    ),
+                  ),
+                ),
+                DataCell(
+                  consumption != null
+                      ? Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '+${consumption.toStringAsFixed(3)} ${meterType.unit}',
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+                          ),
+                        )
+                      : Text(
+                          reading != null && prevReading == null ? 'Sem anterior' : '—',
+                          style: TextStyle(color: colorScheme.outline, fontSize: 13),
+                        ),
                 ),
                 DataCell(
                   Text(reading != null ? dateFormat.format(reading.readAt) : '—'),
