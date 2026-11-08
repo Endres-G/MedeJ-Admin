@@ -73,6 +73,8 @@ class CondominiumReadingsOverview {
   int measuredCount(MeterType type) =>
       apartments.where((a) => a.hasReadingFor(type)).length;
 
+  int readingsCountFor(MeterType type) => measuredCount(type);
+
   int pendingCount(MeterType type) => totalApartments - measuredCount(type);
 
   double coverageFor(MeterType type) =>

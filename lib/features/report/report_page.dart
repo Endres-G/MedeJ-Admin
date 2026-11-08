@@ -667,7 +667,7 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
   ) {
     final theme = Theme.of(context);
     final totalUnits = overview.totalApartments;
-    final measuredUnits = overview.readingsCountFor(meterType);
+    final measuredUnits = overview.measuredCount(meterType);
     final withPhotoCount = overview.apartments.where((a) {
       final r = a.latestReadingFor(meterType);
       return r != null &&
