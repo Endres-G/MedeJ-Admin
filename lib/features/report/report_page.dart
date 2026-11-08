@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mede_ja_admin/features/leituras/reading_datasrc.dart';
+import 'package:mede_ja_admin/features/leituras/reading_model.dart';
 import 'package:mede_ja_admin/features/leituras/readings_controller.dart';
 import 'dart:html' as html;
 
@@ -42,16 +43,18 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeader(context, overview),
-              const SizedBox(height: 24),
+              _buildHeader(context, overview, state.selectedMeterType),
+              const SizedBox(height: 20),
+              _buildMeterTypeSelector(context, state),
+              const SizedBox(height: 20),
               _buildSelectors(context, state, isSmall),
               const SizedBox(height: 24),
               if (overview != null) ...[
-                _buildReportSummary(context, overview),
+                _buildReportSummary(context, overview, state.selectedMeterType),
                 const SizedBox(height: 24),
-                _buildActionToolbar(context, overview),
+                _buildActionToolbar(context, overview, state.selectedMeterType),
                 const SizedBox(height: 16),
-                _buildReportTable(context, overview),
+                _buildReportTable(context, overview, state.selectedMeterType),
               ] else if (state.isLoadingReadings) ...[
                 const Padding(
                   padding: EdgeInsets.all(48),
@@ -67,7 +70,11 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
     );
   }
 
-  Widget _buildHeader(BuildContext context, CondominiumReadingsOverview? overview) {
+  Widget _buildHeader(
+    BuildContext context,
+    CondominiumReadingsOverview? overview,
+    MeterType meterType,
+  ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -75,21 +82,73 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Relatórios de Medição',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+              Row(
+                children: [
+                  Text(
+                    'Relatórios de Medição',
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(width: 12),
+                  Chip(
+                    avatar: Icon(
+                      meterType == MeterType.gas
+                          ? Icons.local_fire_department_outlined
+                          : Icons.water_drop_outlined,
+                      size: 16,
+                      color: meterType == MeterType.gas
+                          ? Colors.deepOrange
+                          : Colors.blue,
                     ),
+                    label: Text(
+                      meterType.label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: meterType == MeterType.gas
+                            ? Colors.deepOrange
+                            : Colors.blue,
+                      ),
+                    ),
+                    backgroundColor: meterType == MeterType.gas
+                        ? Colors.deepOrange.withValues(alpha: 0.1)
+                        : Colors.blue.withValues(alpha: 0.1),
+                    side: BorderSide.none,
+                  ),
+                ],
               ),
               const SizedBox(height: 4),
               Text(
-                'Consolidação de dados para rateio condominial e exportação de planilhas.',
+                'Consolidação de dados de consumo de gás e água para rateio condominial e exportação de planilhas.',
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
             ],
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildMeterTypeSelector(BuildContext context, ReadingsState state) {
+    return SegmentedButton<MeterType>(
+      segments: const [
+        ButtonSegment<MeterType>(
+          value: MeterType.gas,
+          icon: Icon(Icons.local_fire_department_outlined),
+          label: Text('Relatório de Gás'),
+        ),
+        ButtonSegment<MeterType>(
+          value: MeterType.water,
+          icon: Icon(Icons.water_drop_outlined),
+          label: Text('Relatório de Água'),
+        ),
+      ],
+      selected: {state.selectedMeterType},
+      onSelectionChanged: (selectedSet) {
+        if (selectedSet.isNotEmpty) {
+          ref.read(readingsControllerProvider.notifier).setMeterType(selectedSet.first);
+        }
+      },
     );
   }
 
@@ -166,15 +225,19 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
   Widget _buildReportSummary(
     BuildContext context,
     CondominiumReadingsOverview overview,
+    MeterType meterType,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
 
-    // Calcula totalizador de m³ lidos
+    // Calcula totalizador de m³ lidos para o medidor ativo
     double totalM3 = 0.0;
     for (final apt in overview.apartments) {
-      final val = apt.latestReading?.numericValue;
+      final val = apt.latestReadingFor(meterType)?.numericValue;
       if (val != null) totalM3 += val;
     }
+
+    final measured = overview.measuredCount(meterType);
+    final coverage = overview.coveragePercentage(meterType);
 
     return Card(
       color: colorScheme.surfaceContainerLow,
@@ -185,13 +248,21 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
           children: [
             Row(
               children: [
-                Icon(Icons.assessment_outlined, color: colorScheme.primary, size: 28),
+                Icon(
+                  meterType == MeterType.gas
+                      ? Icons.local_fire_department_outlined
+                      : Icons.water_drop_outlined,
+                  color: meterType == MeterType.gas ? Colors.deepOrange : Colors.blue,
+                  size: 28,
+                ),
                 const SizedBox(width: 12),
-                Text(
-                  'Consolidação do Condomínio: ${overview.condominiumName}',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                Expanded(
+                  child: Text(
+                    'Consolidação de ${meterType.label}: ${overview.condominiumName}',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
                 ),
               ],
             ),
@@ -209,12 +280,12 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
                   value: '${overview.totalApartments}',
                 ),
                 _SummaryLabel(
-                  label: 'Unidades Medidas',
-                  value: '${overview.measuredApartments} (${(overview.coveragePercentage * 100).toStringAsFixed(1)}%)',
+                  label: 'Unidades Medidas (${meterType.label})',
+                  value: '$measured (${(coverage * 100).toStringAsFixed(1)}%)',
                 ),
                 _SummaryLabel(
-                  label: 'Soma dos Medidores',
-                  value: '${totalM3.toStringAsFixed(3)} m³',
+                  label: 'Soma dos Medidores (${meterType.label})',
+                  value: '${totalM3.toStringAsFixed(3)} ${meterType.unit}',
                 ),
               ],
             ),
@@ -227,20 +298,21 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
   Widget _buildActionToolbar(
     BuildContext context,
     CondominiumReadingsOverview overview,
+    MeterType meterType,
   ) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(
-          'Detalhamento por Unidade',
+          'Detalhamento por Unidade (${meterType.label})',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
         ),
         FilledButton.icon(
           icon: const Icon(Icons.download),
-          label: const Text('Exportar Planilha (CSV)'),
-          onPressed: () => _exportCsv(overview),
+          label: Text('Exportar Planilha de ${meterType.label} (CSV)'),
+          onPressed: () => _exportCsv(overview, meterType),
         ),
       ],
     );
@@ -249,6 +321,7 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
   Widget _buildReportTable(
     BuildContext context,
     CondominiumReadingsOverview overview,
+    MeterType meterType,
   ) {
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
@@ -257,22 +330,23 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: DataTable(
-          columns: const [
-            DataColumn(label: Text('Bloco')),
-            DataColumn(label: Text('Unidade / Apartamento')),
-            DataColumn(label: Text('Leitura Atual (m³)')),
-            DataColumn(label: Text('Data da Leitura')),
-            DataColumn(label: Text('Status')),
+          columns: [
+            const DataColumn(label: Text('Bloco')),
+            const DataColumn(label: Text('Unidade / Apartamento')),
+            DataColumn(label: Text('Leitura de ${meterType.label} (${meterType.unit})')),
+            const DataColumn(label: Text('Data da Leitura')),
+            const DataColumn(label: Text('Status')),
           ],
           rows: overview.apartments.map((item) {
-            final reading = item.latestReading;
+            final reading = item.latestReadingFor(meterType);
+            final isDone = item.hasReadingFor(meterType);
             return DataRow(
               cells: [
                 DataCell(Text(item.block.name, style: const TextStyle(fontWeight: FontWeight.bold))),
                 DataCell(Text('Apto ${item.apartment.name}')),
                 DataCell(
                   Text(
-                    reading != null ? '${reading.readingValue} m³' : 'Pendente',
+                    reading != null ? '${reading.readingValue} ${meterType.unit}' : 'Pendente',
                     style: TextStyle(
                       fontWeight: reading != null ? FontWeight.bold : FontWeight.normal,
                       color: reading != null ? null : Colors.orange,
@@ -284,9 +358,9 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
                 ),
                 DataCell(
                   Text(
-                    item.hasReading ? 'Concluído' : 'Não Realizado',
+                    isDone ? 'Concluído' : 'Não Realizado',
                     style: TextStyle(
-                      color: item.hasReading ? Colors.green : Colors.grey,
+                      color: isDone ? Colors.green : Colors.grey,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -319,21 +393,21 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
     );
   }
 
-  void _exportCsv(CondominiumReadingsOverview overview) {
+  void _exportCsv(CondominiumReadingsOverview overview, MeterType meterType) {
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm:ss');
     final buffer = StringBuffer();
 
-    // Cabeçalho CSV
-    buffer.writeln('Condominio;Administradora;Bloco;Apartamento;Leitura_m3;Data_Leitura;Status');
+    // Cabeçalho CSV com Tipo de Medição
+    buffer.writeln('Condominio;Administradora;Tipo_Medicao;Bloco;Apartamento;Leitura_m3;Data_Leitura;Status');
 
     for (final item in overview.apartments) {
-      final reading = item.latestReading;
+      final reading = item.latestReadingFor(meterType);
       final val = reading != null ? reading.readingValue : '';
       final dt = reading != null ? dateFormat.format(reading.readAt) : '';
-      final status = item.hasReading ? 'LIDO' : 'PENDENTE';
+      final status = item.hasReadingFor(meterType) ? 'LIDO' : 'PENDENTE';
 
       buffer.writeln(
-        '"${overview.condominiumName}";"${overview.administratorName}";"${item.block.name}";"${item.apartment.name}";"$val";"$dt";"$status"',
+        '"${overview.condominiumName}";"${overview.administratorName}";"${meterType.label.toUpperCase()}";"${item.block.name}";"${item.apartment.name}";"$val";"$dt";"$status"',
       );
     }
 
@@ -344,15 +418,15 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
       final anchor = html.AnchorElement(href: url)
         ..setAttribute(
           'download',
-          'relatorio_leituras_${overview.condominiumName.toLowerCase().replaceAll(' ', '_')}.csv',
+          'relatorio_leituras_${meterType.name}_${overview.condominiumName.toLowerCase().replaceAll(' ', '_')}.csv',
         )
         ..click();
       html.Url.revokeObjectUrl(url);
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Planilha CSV gerada e download iniciado com sucesso!'),
+      SnackBar(
+        content: Text('Planilha CSV de ${meterType.label} gerada e download iniciado com sucesso!'),
       ),
     );
   }

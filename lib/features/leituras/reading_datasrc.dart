@@ -7,17 +7,27 @@ import 'package:mede_ja_admin/features/leituras/reading_model.dart';
 class ApartmentReadingItem {
   final ApartmentModel apartment;
   final BlockModel block;
-  final ReadingModel? latestReading;
+  final ReadingModel? latestGasReading;
+  final ReadingModel? latestWaterReading;
   final List<ReadingModel> history;
 
   const ApartmentReadingItem({
     required this.apartment,
     required this.block,
-    this.latestReading,
+    this.latestGasReading,
+    this.latestWaterReading,
     this.history = const [],
   });
 
-  bool get hasReading => latestReading != null;
+  /// Retorna a leitura mais recente de acordo com o tipo solicitado.
+  ReadingModel? latestReadingFor(MeterType type) =>
+      type == MeterType.water ? latestWaterReading : latestGasReading;
+
+  /// Getter de compatibilidade (retorna a de Gás por padrão).
+  ReadingModel? get latestReading => latestGasReading;
+
+  bool hasReadingFor(MeterType type) => latestReadingFor(type) != null;
+  bool get hasReading => hasReadingFor(MeterType.gas);
 }
 
 class CondominiumReadingsOverview {
@@ -26,7 +36,8 @@ class CondominiumReadingsOverview {
   final String administratorId;
   final String administratorName;
   final List<ApartmentReadingItem> apartments;
-  final DateTime? latestGlobalReadingDate;
+  final DateTime? latestGasReadingDate;
+  final DateTime? latestWaterReadingDate;
 
   const CondominiumReadingsOverview({
     required this.condominiumId,
@@ -34,14 +45,28 @@ class CondominiumReadingsOverview {
     required this.administratorId,
     required this.administratorName,
     required this.apartments,
-    this.latestGlobalReadingDate,
+    this.latestGasReadingDate,
+    this.latestWaterReadingDate,
   });
 
   int get totalApartments => apartments.length;
-  int get measuredApartments => apartments.where((a) => a.hasReading).length;
-  int get pendingApartments => totalApartments - measuredApartments;
-  double get coveragePercentage =>
-      totalApartments == 0 ? 0.0 : (measuredApartments / totalApartments);
+
+  int measuredCount(MeterType type) =>
+      apartments.where((a) => a.hasReadingFor(type)).length;
+
+  int pendingCount(MeterType type) => totalApartments - measuredCount(type);
+
+  double coveragePercentage(MeterType type) =>
+      totalApartments == 0 ? 0.0 : (measuredCount(type) / totalApartments);
+
+  DateTime? latestDateFor(MeterType type) =>
+      type == MeterType.water ? latestWaterReadingDate : latestGasReadingDate;
+
+  // Getters para compatibilidade com implementações existentes
+  int get measuredApartments => measuredCount(MeterType.gas);
+  int get pendingApartments => pendingCount(MeterType.gas);
+  double get coveragePercentage => coveragePercentage(MeterType.gas);
+  DateTime? get latestGlobalReadingDate => latestGasReadingDate;
 }
 
 class ReadingFirestoreDataSource {
@@ -71,12 +96,13 @@ class ReadingFirestoreDataSource {
         .collection('readings');
   }
 
-  /// Busca a última leitura registrada para um apartamento
+  /// Busca a última leitura registrada para um apartamento (opcionalmente filtrando por tipo)
   Future<ReadingModel?> getLatestReadingForApartment({
     required String administratorId,
     required String condominiumId,
     required String blockId,
     required String apartmentId,
+    MeterType? meterType,
     String? apartmentName,
     String? blockName,
     String? condominiumName,
@@ -87,21 +113,28 @@ class ReadingFirestoreDataSource {
       condominiumId: condominiumId,
       blockId: blockId,
       apartmentId: apartmentId,
-    ).orderBy('readAt', descending: true).limit(1).get();
+    ).orderBy('readAt', descending: true).limit(20).get();
 
     if (query.docs.isEmpty) return null;
 
-    return ReadingModel.fromFirestore(
-      query.docs.first,
-      apartmentId: apartmentId,
-      apartmentName: apartmentName,
-      blockId: blockId,
-      blockName: blockName,
-      condominiumId: condominiumId,
-      condominiumName: condominiumName,
-      administratorId: administratorId,
-      administratorName: administratorName,
-    );
+    final models = query.docs.map((doc) {
+      return ReadingModel.fromFirestore(
+        doc,
+        apartmentId: apartmentId,
+        apartmentName: apartmentName,
+        blockId: blockId,
+        blockName: blockName,
+        condominiumId: condominiumId,
+        condominiumName: condominiumName,
+        administratorId: administratorId,
+        administratorName: administratorName,
+      );
+    });
+
+    if (meterType != null) {
+      return models.where((r) => r.meterType == meterType).firstOrNull;
+    }
+    return models.firstOrNull;
   }
 
   /// Busca histórico de leituras de um apartamento
@@ -110,11 +143,12 @@ class ReadingFirestoreDataSource {
     required String condominiumId,
     required String blockId,
     required String apartmentId,
+    MeterType? meterType,
     String? apartmentName,
     String? blockName,
     String? condominiumName,
     String? administratorName,
-    int limit = 20,
+    int limit = 50,
   }) async {
     final query = await _readingsCollection(
       administratorId: administratorId,
@@ -123,7 +157,7 @@ class ReadingFirestoreDataSource {
       apartmentId: apartmentId,
     ).orderBy('readAt', descending: true).limit(limit).get();
 
-    return query.docs.map((doc) {
+    final all = query.docs.map((doc) {
       return ReadingModel.fromFirestore(
         doc,
         apartmentId: apartmentId,
@@ -136,9 +170,14 @@ class ReadingFirestoreDataSource {
         administratorName: administratorName,
       );
     }).toList();
+
+    if (meterType != null) {
+      return all.where((r) => r.meterType == meterType).toList();
+    }
+    return all;
   }
 
-  /// Busca a visão consolidada de leituras de todos os apartamentos de um condomínio
+  /// Busca a visão consolidada de leituras de todos os apartamentos de um condomínio (Gás e Água)
   Future<CondominiumReadingsOverview> getCondominiumReadingsOverview({
     required String administratorId,
     required String administratorName,
@@ -159,7 +198,8 @@ class ReadingFirestoreDataSource {
       ..sort((a, b) => naturalCompare(a.name, b.name));
 
     final apartmentItems = <ApartmentReadingItem>[];
-    DateTime? globalLatestDate;
+    DateTime? globalLatestGasDate;
+    DateTime? globalLatestWaterDate;
 
     for (final block in blocks) {
       final aptsCol = blocksCol.doc(block.id).collection('apartments');
@@ -170,20 +210,49 @@ class ReadingFirestoreDataSource {
         ..sort((a, b) => naturalCompare(a.name, b.name));
 
       for (final apt in apartments) {
-        final latest = await getLatestReadingForApartment(
+        final readingsQuery = await _readingsCollection(
           administratorId: administratorId,
           condominiumId: condominiumId,
           blockId: block.id,
           apartmentId: apt.id,
-          apartmentName: apt.name,
-          blockName: block.name,
-          condominiumName: condominiumName,
-          administratorName: administratorName,
-        );
+        ).orderBy('readAt', descending: true).limit(20).get();
 
-        if (latest != null) {
-          if (globalLatestDate == null || latest.readAt.isAfter(globalLatestDate)) {
-            globalLatestDate = latest.readAt;
+        final recentReadings = readingsQuery.docs.map((d) {
+          return ReadingModel.fromFirestore(
+            d,
+            apartmentId: apt.id,
+            apartmentName: apt.name,
+            blockId: block.id,
+            blockName: block.name,
+            condominiumId: condominiumId,
+            condominiumName: condominiumName,
+            administratorId: administratorId,
+            administratorName: administratorName,
+          );
+        }).toList();
+
+        ReadingModel? latestGas;
+        ReadingModel? latestWater;
+
+        for (final r in recentReadings) {
+          if (r.meterType == MeterType.gas && latestGas == null) {
+            latestGas = r;
+          } else if (r.meterType == MeterType.water && latestWater == null) {
+            latestWater = r;
+          }
+          if (latestGas != null && latestWater != null) break;
+        }
+
+        if (latestGas != null) {
+          if (globalLatestGasDate == null ||
+              latestGas.readAt.isAfter(globalLatestGasDate)) {
+            globalLatestGasDate = latestGas.readAt;
+          }
+        }
+        if (latestWater != null) {
+          if (globalLatestWaterDate == null ||
+              latestWater.readAt.isAfter(globalLatestWaterDate)) {
+            globalLatestWaterDate = latestWater.readAt;
           }
         }
 
@@ -191,7 +260,8 @@ class ReadingFirestoreDataSource {
           ApartmentReadingItem(
             apartment: apt,
             block: block,
-            latestReading: latest,
+            latestGasReading: latestGas,
+            latestWaterReading: latestWater,
           ),
         );
       }
@@ -203,7 +273,8 @@ class ReadingFirestoreDataSource {
       administratorId: administratorId,
       administratorName: administratorName,
       apartments: apartmentItems,
-      latestGlobalReadingDate: globalLatestDate,
+      latestGasReadingDate: globalLatestGasDate,
+      latestWaterReadingDate: globalLatestWaterDate,
     );
   }
 

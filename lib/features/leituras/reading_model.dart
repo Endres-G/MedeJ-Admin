@@ -1,8 +1,34 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+enum MeterType {
+  gas,
+  water;
+
+  String get label {
+    switch (this) {
+      case MeterType.gas:
+        return 'Gás';
+      case MeterType.water:
+        return 'Água';
+    }
+  }
+
+  String get unit => 'm³';
+
+  static MeterType fromString(String? value) {
+    if (value == null) return MeterType.gas;
+    final lower = value.trim().toLowerCase();
+    if (lower == 'water' || lower == 'agua' || lower == 'água') {
+      return MeterType.water;
+    }
+    return MeterType.gas;
+  }
+}
+
 class ReadingModel {
   final String id;
   final String readingValue;
+  final MeterType meterType;
   final String? photoUrl;
   final String? photoPath;
   final DateTime readAt;
@@ -22,6 +48,7 @@ class ReadingModel {
   const ReadingModel({
     required this.id,
     required this.readingValue,
+    this.meterType = MeterType.gas,
     this.photoUrl,
     this.photoPath,
     required this.readAt,
@@ -66,9 +93,14 @@ class ReadingModel {
       parsedDate = DateTime.now();
     }
 
+    final parsedType = MeterType.fromString(
+      data['type'] as String? ?? data['meterType'] as String?,
+    );
+
     return ReadingModel(
       id: snapshot.id,
       readingValue: (data['readingValue'] as String?)?.trim() ?? '',
+      meterType: parsedType,
       photoUrl: data['photoUrl'] as String?,
       photoPath: data['photoPath'] as String?,
       readAt: parsedDate,
@@ -87,6 +119,8 @@ class ReadingModel {
 
   Map<String, dynamic> toMap() {
     return {
+      'type': meterType.name,
+      'meterType': meterType.name,
       'readingValue': readingValue,
       'photoUrl': photoUrl,
       'photoPath': photoPath,
@@ -105,6 +139,7 @@ class ReadingModel {
   ReadingModel copyWith({
     String? id,
     String? readingValue,
+    MeterType? meterType,
     String? photoUrl,
     String? photoPath,
     DateTime? readAt,
@@ -122,6 +157,7 @@ class ReadingModel {
     return ReadingModel(
       id: id ?? this.id,
       readingValue: readingValue ?? this.readingValue,
+      meterType: meterType ?? this.meterType,
       photoUrl: photoUrl ?? this.photoUrl,
       photoPath: photoPath ?? this.photoPath,
       readAt: readAt ?? this.readAt,

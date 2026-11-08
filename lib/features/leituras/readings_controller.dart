@@ -26,6 +26,7 @@ class ReadingsState {
   final List<CondominiumModel> condominiums;
   final String? selectedAdministratorId;
   final String? selectedCondominiumId;
+  final MeterType selectedMeterType;
   final CondominiumReadingsOverview? overview;
   final String? error;
 
@@ -36,6 +37,7 @@ class ReadingsState {
     this.condominiums = const [],
     this.selectedAdministratorId,
     this.selectedCondominiumId,
+    this.selectedMeterType = MeterType.gas,
     this.overview,
     this.error,
   });
@@ -65,6 +67,7 @@ class ReadingsState {
     List<CondominiumModel>? condominiums,
     String? selectedAdministratorId,
     String? selectedCondominiumId,
+    MeterType? selectedMeterType,
     CondominiumReadingsOverview? overview,
     bool clearOverview = false,
     String? error,
@@ -79,6 +82,7 @@ class ReadingsState {
           selectedAdministratorId ?? this.selectedAdministratorId,
       selectedCondominiumId:
           selectedCondominiumId ?? this.selectedCondominiumId,
+      selectedMeterType: selectedMeterType ?? this.selectedMeterType,
       overview: clearOverview ? null : (overview ?? this.overview),
       error: clearError ? null : (error ?? this.error),
     );
@@ -222,9 +226,15 @@ class ReadingsController extends StateNotifier<ReadingsState> {
     }
   }
 
+  void setMeterType(MeterType type) {
+    if (!mounted || state.selectedMeterType == type) return;
+    state = state.copyWith(selectedMeterType: type);
+  }
+
   Future<List<ReadingModel>> loadApartmentHistory({
     required String blockId,
     required String apartmentId,
+    MeterType? meterType,
   }) async {
     if (!mounted) return const [];
     if (state.selectedAdministratorId == null ||
@@ -237,6 +247,7 @@ class ReadingsController extends StateNotifier<ReadingsState> {
       condominiumId: state.selectedCondominiumId!,
       blockId: blockId,
       apartmentId: apartmentId,
+      meterType: meterType,
     );
   }
 

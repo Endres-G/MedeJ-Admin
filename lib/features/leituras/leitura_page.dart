@@ -48,11 +48,13 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeader(context, state, isSmall),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
+              _buildMeterTypeSelector(context, state),
+              const SizedBox(height: 20),
               _buildSelectors(context, state, isSmall),
               const SizedBox(height: 24),
               if (state.overview != null) ...[
-                _buildSummaryCards(context, state.overview!),
+                _buildSummaryCards(context, state.overview!, state.selectedMeterType),
                 const SizedBox(height: 24),
                 _buildFilters(context, state.overview!, isSmall),
                 const SizedBox(height: 16),
@@ -80,15 +82,44 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                'Leituras de Gás',
-                style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+              Row(
+                children: [
+                  Text(
+                    'Leituras de Medição',
+                    style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                  ),
+                  const SizedBox(width: 12),
+                  Chip(
+                    avatar: Icon(
+                      state.selectedMeterType == MeterType.gas
+                          ? Icons.local_fire_department_outlined
+                          : Icons.water_drop_outlined,
+                      size: 16,
+                      color: state.selectedMeterType == MeterType.gas
+                          ? Colors.deepOrange
+                          : Colors.blue,
                     ),
+                    label: Text(
+                      state.selectedMeterType.label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: state.selectedMeterType == MeterType.gas
+                            ? Colors.deepOrange
+                            : Colors.blue,
+                      ),
+                    ),
+                    backgroundColor: state.selectedMeterType == MeterType.gas
+                        ? Colors.deepOrange.withValues(alpha: 0.1)
+                        : Colors.blue.withValues(alpha: 0.1),
+                    side: BorderSide.none,
+                  ),
+                ],
               ),
               const SizedBox(height: 4),
               Text(
-                'Acompanhamento em tempo real dos registros de medição enviados pelo aplicativo móvel.',
+                'Acompanhamento em tempo real dos registros de gás e água enviados pelo aplicativo móvel.',
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
             ],
@@ -100,6 +131,29 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
           icon: const Icon(Icons.refresh),
         ),
       ],
+    );
+  }
+
+  Widget _buildMeterTypeSelector(BuildContext context, ReadingsState state) {
+    return SegmentedButton<MeterType>(
+      segments: const [
+        ButtonSegment<MeterType>(
+          value: MeterType.gas,
+          icon: Icon(Icons.local_fire_department_outlined),
+          label: Text('Medidor de Gás'),
+        ),
+        ButtonSegment<MeterType>(
+          value: MeterType.water,
+          icon: Icon(Icons.water_drop_outlined),
+          label: Text('Medidor de Água'),
+        ),
+      ],
+      selected: {state.selectedMeterType},
+      onSelectionChanged: (selectedSet) {
+        if (selectedSet.isNotEmpty) {
+          ref.read(readingsControllerProvider.notifier).setMeterType(selectedSet.first);
+        }
+      },
     );
   }
 
@@ -176,9 +230,15 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
   Widget _buildSummaryCards(
     BuildContext context,
     CondominiumReadingsOverview overview,
+    MeterType meterType,
   ) {
     final colorScheme = Theme.of(context).colorScheme;
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
+    final measured = overview.measuredCount(meterType);
+    final pending = overview.pendingCount(meterType);
+    final coverage = overview.coveragePercentage(meterType);
+    final latestDate = overview.latestDateFor(meterType);
+    final isGas = meterType == MeterType.gas;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -204,29 +264,29 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
             SizedBox(
               width: cardWidth,
               child: _MetricCard(
-                title: 'Medições Realizadas',
-                value: '${overview.measuredApartments}',
-                subtitle: '${(overview.coveragePercentage * 100).toStringAsFixed(1)}% do condomínio',
-                icon: Icons.check_circle_outline,
-                color: Colors.green,
+                title: 'Medições (${meterType.label})',
+                value: '$measured',
+                subtitle: '${(coverage * 100).toStringAsFixed(1)}% do condomínio',
+                icon: isGas ? Icons.local_fire_department_outlined : Icons.water_drop_outlined,
+                color: isGas ? Colors.deepOrange : Colors.blue,
               ),
             ),
             SizedBox(
               width: cardWidth,
               child: _MetricCard(
                 title: 'Leituras Pendentes',
-                value: '${overview.pendingApartments}',
+                value: '$pending',
                 subtitle: 'Aguardando registro',
                 icon: Icons.pending_outlined,
-                color: overview.pendingApartments > 0 ? Colors.orange : Colors.grey,
+                color: pending > 0 ? Colors.orange : Colors.grey,
               ),
             ),
             SizedBox(
               width: cardWidth,
               child: _MetricCard(
                 title: 'Última Transmissão',
-                value: overview.latestGlobalReadingDate != null
-                    ? dateFormat.format(overview.latestGlobalReadingDate!)
+                value: latestDate != null
+                    ? dateFormat.format(latestDate)
                     : 'Nenhuma',
                 subtitle: 'Sincronizado via mobile',
                 icon: Icons.cloud_done_outlined,
@@ -313,13 +373,15 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
   ) {
     final overview = state.overview!;
     final query = _search.toLowerCase();
+    final meterType = state.selectedMeterType;
 
     final filtered = overview.apartments.where((item) {
       if (_selectedBlockFilter != null && item.block.name != _selectedBlockFilter) {
         return false;
       }
-      if (_statusFilter == 'Lidos' && !item.hasReading) return false;
-      if (_statusFilter == 'Pendentes' && item.hasReading) return false;
+      final hasReading = item.hasReadingFor(meterType);
+      if (_statusFilter == 'Lidos' && !hasReading) return false;
+      if (_statusFilter == 'Pendentes' && hasReading) return false;
 
       if (query.isNotEmpty) {
         final matchApt = item.apartment.name.toLowerCase().contains(query);
@@ -353,18 +415,18 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: DataTable(
-          columns: const [
-            DataColumn(label: Text('Bloco')),
-            DataColumn(label: Text('Apartamento')),
-            DataColumn(label: Text('Status')),
-            DataColumn(label: Text('Valor da Leitura (m³)')),
-            DataColumn(label: Text('Data / Hora')),
-            DataColumn(label: Text('Foto')),
-            DataColumn(label: Text('Ações')),
+          columns: [
+            const DataColumn(label: Text('Bloco')),
+            const DataColumn(label: Text('Apartamento')),
+            const DataColumn(label: Text('Status')),
+            DataColumn(label: Text('Leitura de ${meterType.label} (${meterType.unit})')),
+            const DataColumn(label: Text('Data / Hora')),
+            const DataColumn(label: Text('Foto')),
+            const DataColumn(label: Text('Ações')),
           ],
           rows: filtered.map((item) {
-            final reading = item.latestReading;
-            final isDone = item.hasReading;
+            final reading = item.latestReadingFor(meterType);
+            final isDone = item.hasReadingFor(meterType);
 
             return DataRow(
               cells: [
@@ -389,7 +451,7 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
                 ),
                 DataCell(
                   Text(
-                    reading != null ? '${reading.readingValue} m³' : '—',
+                    reading != null ? '${reading.readingValue} ${meterType.unit}' : '—',
                     style: TextStyle(
                       fontWeight: reading != null ? FontWeight.bold : FontWeight.normal,
                       fontSize: 15,
@@ -507,11 +569,48 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
                   separatorBuilder: (_, __) => const Divider(),
                   itemBuilder: (_, index) {
                     final h = history[index];
+                    final isGas = h.meterType == MeterType.gas;
                     return ListTile(
-                      leading: const Icon(Icons.gas_meter_outlined),
-                      title: Text(
-                        '${h.readingValue} m³',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      leading: CircleAvatar(
+                        backgroundColor: isGas
+                            ? Colors.deepOrange.withValues(alpha: 0.15)
+                            : Colors.blue.withValues(alpha: 0.15),
+                        child: Icon(
+                          isGas
+                              ? Icons.local_fire_department_outlined
+                              : Icons.water_drop_outlined,
+                          color: isGas ? Colors.deepOrange : Colors.blue,
+                          size: 20,
+                        ),
+                      ),
+                      title: Row(
+                        children: [
+                          Text(
+                            '${h.readingValue} ${h.meterType.unit}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isGas
+                                  ? Colors.deepOrange.withValues(alpha: 0.12)
+                                  : Colors.blue.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              h.meterType.label,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: isGas ? Colors.deepOrange : Colors.blue,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       subtitle: Text('Data: ${dateFormat.format(h.readAt)}'),
                       trailing: h.photoUrl != null
