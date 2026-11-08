@@ -56,7 +56,7 @@ class CondominiumReadingsOverview {
 
   int pendingCount(MeterType type) => totalApartments - measuredCount(type);
 
-  double coveragePercentage(MeterType type) =>
+  double coverageFor(MeterType type) =>
       totalApartments == 0 ? 0.0 : (measuredCount(type) / totalApartments);
 
   DateTime? latestDateFor(MeterType type) =>
@@ -65,7 +65,7 @@ class CondominiumReadingsOverview {
   // Getters para compatibilidade com implementações existentes
   int get measuredApartments => measuredCount(MeterType.gas);
   int get pendingApartments => pendingCount(MeterType.gas);
-  double get coveragePercentage => coveragePercentage(MeterType.gas);
+  double get coveragePercentage => coverageFor(MeterType.gas);
   DateTime? get latestGlobalReadingDate => latestGasReadingDate;
 }
 

@@ -82,7 +82,10 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
                 children: [
                   Text(
                     'Relatórios de Medição',
@@ -90,7 +93,6 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
                           fontWeight: FontWeight.bold,
                         ),
                   ),
-                  const SizedBox(width: 12),
                   Chip(
                     avatar: Icon(
                       meterType == MeterType.gas
@@ -237,7 +239,7 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
     }
 
     final measured = overview.measuredCount(meterType);
-    final coverage = overview.coveragePercentage(meterType);
+    final coverage = overview.coverageFor(meterType);
 
     return Card(
       color: colorScheme.surfaceContainerLow,

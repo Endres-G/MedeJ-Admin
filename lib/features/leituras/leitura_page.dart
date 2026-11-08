@@ -82,7 +82,10 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
+              Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
                 children: [
                   Text(
                     'Leituras de Medição',
@@ -90,7 +93,6 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
                           fontWeight: FontWeight.bold,
                         ),
                   ),
-                  const SizedBox(width: 12),
                   Chip(
                     avatar: Icon(
                       state.selectedMeterType == MeterType.gas
@@ -236,7 +238,7 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
     final dateFormat = DateFormat('dd/MM/yyyy HH:mm');
     final measured = overview.measuredCount(meterType);
     final pending = overview.pendingCount(meterType);
-    final coverage = overview.coveragePercentage(meterType);
+    final coverage = overview.coverageFor(meterType);
     final latestDate = overview.latestDateFor(meterType);
     final isGas = meterType == MeterType.gas;
 
