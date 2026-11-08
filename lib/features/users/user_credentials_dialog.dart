@@ -148,8 +148,8 @@ class _ProvisionedCredentialsDialogState
           ),
         ],
       ),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
+      content: SizedBox(
+        width: 500,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -882,10 +882,10 @@ class _SelectAccountToLinkDialogState
           Expanded(child: Text('Vincular conta a ${widget.condominiumName}')),
         ],
       ),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 420),
+      content: SizedBox(
+        width: 500,
+        height: 420,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
@@ -912,7 +912,7 @@ class _SelectAccountToLinkDialogState
             else
               Expanded(
                 child: ListView.builder(
-                  shrinkWrap: true,
+                  shrinkWrap: false,
                   itemCount: filtered.length,
                   itemBuilder: (ctx, index) {
                     final item = filtered[index];
@@ -1020,10 +1020,10 @@ class _SelectCondominiumToLinkDialogState
           Expanded(child: Text('Vincular "${widget.accountName}"')),
         ],
       ),
-      content: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520, maxHeight: 420),
+      content: SizedBox(
+        width: 500,
+        height: 420,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
@@ -1050,7 +1050,7 @@ class _SelectCondominiumToLinkDialogState
             else
               Expanded(
                 child: ListView.builder(
-                  shrinkWrap: true,
+                  shrinkWrap: false,
                   itemCount: filtered.length,
                   itemBuilder: (ctx, index) {
                     final item = filtered[index];

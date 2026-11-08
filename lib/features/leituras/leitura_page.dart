@@ -495,13 +495,14 @@ class _ReadingsPageState extends ConsumerState<ReadingsPage> {
         title: Text('Histórico: ${item.block.name} - Apto ${item.apartment.name}'),
         content: SizedBox(
           width: 500,
+          height: history.isEmpty ? 120 : 360,
           child: history.isEmpty
               ? const Padding(
                   padding: EdgeInsets.all(24),
                   child: Center(child: Text('Nenhuma leitura registrada no histórico.')),
                 )
               : ListView.separated(
-                  shrinkWrap: true,
+                  shrinkWrap: false,
                   itemCount: history.length,
                   separatorBuilder: (_, __) => const Divider(),
                   itemBuilder: (_, index) {
