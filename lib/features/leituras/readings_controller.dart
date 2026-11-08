@@ -100,13 +100,16 @@ class ReadingsController extends StateNotifier<ReadingsState> {
         super(const ReadingsState());
 
   Future<void> init() async {
+    if (!mounted) return;
     state = state.copyWith(isLoading: true, clearError: true);
     try {
       final admins = await _adminRepository.getAdministrators();
+      if (!mounted) return;
       final sortedAdmins = List<AdministratorModel>.of(admins)
         ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
       if (sortedAdmins.isEmpty) {
+        if (!mounted) return;
         state = state.copyWith(
           isLoading: false,
           administrators: const [],
@@ -118,6 +121,7 @@ class ReadingsController extends StateNotifier<ReadingsState> {
       final firstAdmin = sortedAdmins.first;
       final condos = await _condominiumRepository
           .getCondominiumsByAdministrator(firstAdmin.id);
+      if (!mounted) return;
       final sortedCondos = List<CondominiumModel>.of(condos)
         ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
@@ -134,11 +138,13 @@ class ReadingsController extends StateNotifier<ReadingsState> {
         await loadReadings(firstAdmin.id, sortedCondos.first.id);
       }
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(isLoading: false, error: e.toString());
     }
   }
 
   Future<void> selectAdministrator(String administratorId) async {
+    if (!mounted) return;
     if (state.selectedAdministratorId == administratorId) return;
 
     state = state.copyWith(
@@ -153,6 +159,7 @@ class ReadingsController extends StateNotifier<ReadingsState> {
     try {
       final condos = await _condominiumRepository
           .getCondominiumsByAdministrator(administratorId);
+      if (!mounted) return;
       final sortedCondos = List<CondominiumModel>.of(condos)
         ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
@@ -169,11 +176,13 @@ class ReadingsController extends StateNotifier<ReadingsState> {
         await loadReadings(administratorId, firstCondoId);
       }
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(isLoadingReadings: false, error: e.toString());
     }
   }
 
   Future<void> selectCondominium(String condominiumId) async {
+    if (!mounted) return;
     if (state.selectedCondominiumId == condominiumId) return;
     state = state.copyWith(selectedCondominiumId: condominiumId);
     if (state.selectedAdministratorId != null) {
@@ -185,6 +194,7 @@ class ReadingsController extends StateNotifier<ReadingsState> {
     String administratorId,
     String condominiumId,
   ) async {
+    if (!mounted) return;
     state = state.copyWith(isLoadingReadings: true, clearError: true);
     try {
       final admin = state.selectedAdministrator;
@@ -198,11 +208,13 @@ class ReadingsController extends StateNotifier<ReadingsState> {
         condominiumName: condo?.name ?? 'Condomínio',
       );
 
+      if (!mounted) return;
       state = state.copyWith(
         isLoadingReadings: false,
         overview: overview,
       );
     } catch (e) {
+      if (!mounted) return;
       state = state.copyWith(
         isLoadingReadings: false,
         error: 'Erro ao carregar leituras: ${e.toString()}',
@@ -214,6 +226,7 @@ class ReadingsController extends StateNotifier<ReadingsState> {
     required String blockId,
     required String apartmentId,
   }) async {
+    if (!mounted) return const [];
     if (state.selectedAdministratorId == null ||
         state.selectedCondominiumId == null) {
       return const [];
@@ -228,6 +241,7 @@ class ReadingsController extends StateNotifier<ReadingsState> {
   }
 
   Future<void> refresh() async {
+    if (!mounted) return;
     if (state.selectedAdministratorId != null &&
         state.selectedCondominiumId != null) {
       await loadReadings(
