@@ -19,6 +19,7 @@ import 'package:mede_ja_admin/features/contas/contas_page.dart';
 import 'package:mede_ja_admin/features/dashboard/dashboard_page.dart';
 import 'package:mede_ja_admin/features/leituras/leitura_page.dart';
 import 'package:mede_ja_admin/features/report/report_page.dart';
+import 'package:mede_ja_admin/features/trash/trash_page.dart';
 import 'package:mede_ja_admin/features/users/new_condominio_user_page.dart';
 import 'package:mede_ja_admin/features/users/user_condominio_page.dart';
 
@@ -278,6 +279,12 @@ class AppRouter {
           path: AppRoutes.reports,
           pageBuilder: (context, state) {
             return _noTransitionPage(state, const ReportsPage());
+          },
+        ),
+        GoRoute(
+          path: AppRoutes.trash,
+          pageBuilder: (context, state) {
+            return _noTransitionPage(state, const TrashPage());
           },
         ),
       ],

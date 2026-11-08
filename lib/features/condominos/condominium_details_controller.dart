@@ -529,6 +529,8 @@ class CondominiumDetailsController
     }
   }
 
+
+
   Future<bool> toggleCondominiumActive() async {
     final adminId = state.resolvedAdministratorId;
     final current = state.condominium;
@@ -557,6 +559,27 @@ class CondominiumDetailsController
       return false;
     }
   }
+
+  Future<bool> moveToTrash() async {
+    final adminId = state.resolvedAdministratorId;
+    final current = state.condominium;
+    if (adminId == null || adminId.isEmpty || current == null) return false;
+
+    state = state.copyWith(isSaving: true, clearActionError: true);
+    try {
+      await _condominiumRepository.moveToTrash(adminId, current.id);
+      _onParentCachesInvalidated?.call(adminId);
+      if (!mounted) return true;
+      state = state.copyWith(isSaving: false, clearActionError: true);
+      return true;
+    } catch (e) {
+      if (!mounted) return false;
+      state = state.copyWith(isSaving: false, actionError: _formatError(e));
+      return false;
+    }
+  }
+
+
 
   bool hasBlockWithName(String name, {String? ignoreBlockId}) {
     final normalized = name.trim().toLowerCase();
@@ -771,6 +794,8 @@ class CondominiumDetailsController
     }
   }
 
+
+
   Future<bool> toggleBlockActive(BlockModel block) async {
     final adminId = state.resolvedAdministratorId;
     if (adminId == null || adminId.isEmpty) return false;
@@ -808,6 +833,8 @@ class CondominiumDetailsController
       return false;
     }
   }
+
+
 
   bool hasApartmentInBlock(
     String blockId,
@@ -1055,6 +1082,8 @@ class CondominiumDetailsController
     }
   }
 
+
+
   Future<bool> toggleApartmentActive({
     required String blockId,
     required ApartmentModel apartment,
@@ -1096,6 +1125,8 @@ class CondominiumDetailsController
       return false;
     }
   }
+
+
 
   bool hasUserWithEmail(String email, {String? ignoreUserId}) {
     final normalized = email.trim().toLowerCase();
@@ -1301,6 +1332,8 @@ class CondominiumDetailsController
     }
   }
 
+
+
   Future<bool> toggleCondominiumUserActive(UserModel user) async {
     final adminId = state.resolvedAdministratorId;
     if (adminId == null || adminId.isEmpty) return false;
@@ -1349,6 +1382,8 @@ class CondominiumDetailsController
     }
   }
 
+
+
   Future<bool> sendUserPasswordReset(String email) async {
     final normalizedEmail = email.trim().toLowerCase();
     if (normalizedEmail.isEmpty) return false;
@@ -1368,6 +1403,8 @@ class CondominiumDetailsController
       return false;
     }
   }
+
+
 
   /// Vincula uma conta existente (ex.: conta global/sem condomínio) a este condomínio.
   Future<bool> linkExistingUser(AccountRoleProfile profile) async {

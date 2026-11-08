@@ -10,6 +10,7 @@ class AppRoutes {
   // Operação (rotas principais do menu lateral)
   static const readings = '/readings';
   static const reports = '/reports';
+  static const trash = '/trash';
 
   // Administradoras
   static const administratorDetails = '/administrators/:administratorId';

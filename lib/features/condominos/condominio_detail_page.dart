@@ -296,6 +296,16 @@ class _CondominiumDetailsPageState
           ),
           label: Text(condominium.active ? 'Desativar' : 'Ativar'),
         ),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Theme.of(context).colorScheme.error,
+          ),
+          onPressed: state.isSaving
+              ? null
+              : () => _handleMoveCondominiumToTrash(condominium),
+          icon: const Icon(Icons.delete_outline),
+          label: const Text('Mover para lixeira'),
+        ),
       ],
     );
 
@@ -1051,6 +1061,69 @@ class _CondominiumDetailsPageState
           .actionError;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(error ?? 'Erro ao alterar status.')),
+      );
+    }
+  }
+
+  Future<void> _handleMoveCondominiumToTrash(
+    CondominiumModel condominium,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mover condomínio para lixeira?'),
+        content: Text(
+          'Deseja mover o condomínio "${condominium.name}" para a lixeira?\n\n'
+          'Suas medições, blocos e apartamentos ficarão inativos para a operação, '
+          'mas poderão ser restaurados a qualquer momento na Lixeira.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.orange.shade800),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Mover para lixeira'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final controller = ref.read(
+      condominiumDetailsControllerProvider(_scope).notifier,
+    );
+    final ok = await controller.moveToTrash();
+    if (!mounted) return;
+
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Condomínio "${condominium.name}" movido para a lixeira.',
+          ),
+        ),
+      );
+      final adminId = _effectiveAdminId(
+        ref.read(condominiumDetailsControllerProvider(_scope)),
+      );
+      if (adminId != null && adminId.isNotEmpty) {
+        context.go(AppRoutes.administratorDetailsPath(adminId));
+      } else {
+        context.go(AppRoutes.condominiums);
+      }
+    } else {
+      final error = ref
+          .read(condominiumDetailsControllerProvider(_scope))
+          .actionError;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error ?? 'Erro ao mover condomínio para a lixeira.'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     }
   }

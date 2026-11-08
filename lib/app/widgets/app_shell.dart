@@ -170,6 +170,13 @@ class AppShell extends ConsumerWidget {
           currentLocation: activePath,
           onTap: () => navigateTo(AppRoutes.reports),
         ),
+        _SidebarItem(
+          icon: Icons.delete_outline,
+          label: 'Lixeira',
+          route: AppRoutes.trash,
+          currentLocation: activePath,
+          onTap: () => navigateTo(AppRoutes.trash),
+        ),
         const Spacer(),
         if (currentProfile != null) ...[
           Padding(
