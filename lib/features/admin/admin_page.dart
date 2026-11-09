@@ -304,8 +304,10 @@ class _AdministratorsPageState extends State<AdministratorsPage> {
       builder: (ctx) => AlertDialog(
         title: const Text('Mover para lixeira?'),
         content: Text(
-          'Deseja mover a administradora "${admin.name}" para a lixeira? '
-          'Seus condomínios e contas ficarão inativos, mas você poderá restaurá-los a qualquer momento.',
+          'Deseja mover a administradora "${admin.name}" para a lixeira?\n\n'
+          'Seus condomínios, blocos e contas vinculadas ficarão suspensos na operação. '
+          'O item permanecerá na Lixeira por 30 dias antes de ser excluído definitivamente de forma automática '
+          '(você também pode restaurá-lo a qualquer momento na tela de Lixeira).',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),

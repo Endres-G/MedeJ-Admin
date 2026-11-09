@@ -286,6 +286,16 @@ class _AdminDetailsPageState extends ConsumerState<AdminDetailsPage> {
           ),
           label: Text(administrator.active ? 'Desativar' : 'Ativar'),
         ),
+        OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Theme.of(context).colorScheme.error,
+          ),
+          onPressed: state.isSaving
+              ? null
+              : () => _confirmMoveAdminToTrash(administrator),
+          icon: const Icon(Icons.delete_outline),
+          label: const Text('Mover para lixeira'),
+        ),
       ],
     );
 
@@ -501,6 +511,7 @@ class _AdminDetailsPageState extends ConsumerState<AdminDetailsPage> {
                       item: item,
                       isSmall: isSmall,
                       onOpen: () => _openCondominium(item.condominium.id),
+                      onMoveToTrash: () => _confirmMoveCondoToTrash(item.condominium),
                     ),
                     if (index < filtered.length - 1) const Divider(height: 1),
                   ],
@@ -577,6 +588,78 @@ class _AdminDetailsPageState extends ConsumerState<AdminDetailsPage> {
             updatedState.actionError ?? 'Erro ao atualizar administradora.',
           ),
         ),
+      );
+    }
+  }
+
+  Future<void> _confirmMoveAdminToTrash(AdministratorModel administrator) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mover administradora para lixeira?'),
+        content: Text(
+          'Deseja mover a administradora "${administrator.name}" para a lixeira?\n\n'
+          'Seus condomínios, blocos e contas vinculadas ficarão suspensos na operação. '
+          'O item permanecerá na Lixeira por 30 dias antes de ser excluído definitivamente de forma automática '
+          '(você também pode restaurá-lo a qualquer momento na tela de Lixeira).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.orange.shade800),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Mover para lixeira'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final adminRepo = ref.read(administratorRepositoryProvider);
+      await adminRepo.moveToTrash(administrator.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Administradora "${administrator.name}" movida para a lixeira.')),
+      );
+      context.go(AppRoutes.administrators);
+    }
+  }
+
+  Future<void> _confirmMoveCondoToTrash(CondominiumModel condominium) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mover condomínio para lixeira?'),
+        content: Text(
+          'Deseja mover o condomínio "${condominium.name}" para a lixeira?\n\n'
+          'Suas medições, blocos e apartamentos ficarão suspensos na operação. '
+          'O item permanecerá na Lixeira por 30 dias antes de ser excluído definitivamente de forma automática '
+          '(você também pode restaurá-lo a qualquer momento na tela de Lixeira).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.orange.shade800),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Mover para lixeira'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final condoRepo = ref.read(condominiumRepositoryProvider);
+      await condoRepo.moveToTrash(widget.administratorId, condominium.id);
+      ref.read(adminDetailsControllerProvider(widget.administratorId).notifier).load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Condomínio "${condominium.name}" movido para a lixeira.')),
       );
     }
   }
@@ -875,11 +958,13 @@ class _CondominiumTile extends StatelessWidget {
   final CondominiumOverviewItem item;
   final bool isSmall;
   final VoidCallback onOpen;
+  final VoidCallback? onMoveToTrash;
 
   const _CondominiumTile({
     required this.item,
     required this.isSmall,
     required this.onOpen,
+    this.onMoveToTrash,
   });
 
   @override
@@ -915,6 +1000,12 @@ class _CondominiumTile extends StatelessWidget {
               : colorScheme.tertiaryContainer,
         ),
         FilledButton.tonal(onPressed: onOpen, child: const Text('Abrir')),
+        if (onMoveToTrash != null)
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: 'Mover para lixeira',
+            onPressed: onMoveToTrash,
+          ),
       ],
     );
 

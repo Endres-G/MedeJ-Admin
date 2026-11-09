@@ -599,9 +599,9 @@ Future<bool> showConfirmDeleteAccountDialog({
       return AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.warning_amber_rounded, color: colorScheme.error),
+            Icon(Icons.delete_outline, color: Colors.orange.shade800),
             const SizedBox(width: 10),
-            const Expanded(child: Text('Excluir conta')),
+            const Expanded(child: Text('Mover conta para a lixeira?')),
           ],
         ),
         content: ConstrainedBox(
@@ -610,16 +610,39 @@ Future<bool> showConfirmDeleteAccountDialog({
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Deseja realmente excluir permanentemente a conta de "$userName"?'),
+              Text('Deseja mover a conta de "$userName" para a lixeira?'),
               const SizedBox(height: 8),
               SelectableText(
                 userEmail,
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 12),
-              Text(
-                'Esta ação desvinculará a conta dos condomínios e revogará os acessos ao aplicativo mobile e ao painel administrativo.',
-                style: Theme.of(dialogCtx).textTheme.bodySmall,
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orange.shade200),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.info_outline, size: 18, color: Colors.orange.shade900),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'A conta será suspensa imediatamente. '
+                        'O item permanecerá na Lixeira e será excluído definitivamente de forma automática após 30 dias '
+                        '(você também pode restaurá-lo a qualquer momento na tela de Lixeira).',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.orange.shade900,
+                          height: 1.3,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -631,11 +654,10 @@ Future<bool> showConfirmDeleteAccountDialog({
           ),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: colorScheme.error,
-              foregroundColor: colorScheme.onError,
+              backgroundColor: Colors.orange.shade800,
             ),
             onPressed: () => Navigator.pop(dialogCtx, true),
-            child: const Text('Excluir conta'),
+            child: const Text('Mover para lixeira'),
           ),
         ],
       );

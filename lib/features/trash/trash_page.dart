@@ -5,6 +5,7 @@ import 'package:mede_ja_admin/app/widgets/dashboard_card_widget.dart';
 import 'package:mede_ja_admin/features/admin/admin_details_controller.dart';
 import 'package:mede_ja_admin/features/admin/admin_model.dart';
 import 'package:mede_ja_admin/features/condominos/condominio_model.dart';
+import 'package:mede_ja_admin/features/users/user_model.dart';
 
 class DeletedCondominiumItem {
   final AdministratorModel administrator;
@@ -13,6 +14,18 @@ class DeletedCondominiumItem {
   const DeletedCondominiumItem({
     required this.administrator,
     required this.condominium,
+  });
+}
+
+class DeletedUserItem {
+  final AdministratorModel administrator;
+  final CondominiumModel condominium;
+  final UserModel user;
+
+  const DeletedUserItem({
+    required this.administrator,
+    required this.condominium,
+    required this.user,
   });
 }
 
@@ -27,10 +40,11 @@ class _TrashPageState extends ConsumerState<TrashPage> {
   bool _isLoading = true;
   String? _error;
   String _search = '';
-  int _selectedTab = 0; // 0 = Administradoras, 1 = Condomínios
+  int _selectedTab = 0; // 0 = Administradoras, 1 = Condomínios, 2 = Usuários
 
   List<AdministratorModel> _trashAdministrators = [];
   List<DeletedCondominiumItem> _trashCondominiums = [];
+  List<DeletedUserItem> _trashUsers = [];
 
   final DateFormat _dateFormat = DateFormat('dd/MM/yyyy HH:mm');
 
@@ -49,23 +63,46 @@ class _TrashPageState extends ConsumerState<TrashPage> {
     try {
       final adminRepo = ref.read(administratorRepositoryProvider);
       final condoRepo = ref.read(condominiumRepositoryProvider);
+      final userRepo = ref.read(userRepositoryProvider);
 
       // 1. Carrega administradoras deletadas
       final deletedAdmins = await adminRepo.getDeletedAdministrators();
 
-      // 2. Carrega todos os administradores (ativos e deletados) para buscar condomínios na lixeira
+      // 2. Carrega todos os administradores (ativos e deletados) para buscar condomínios e usuários na lixeira
       final allAdmins = await adminRepo.getAdministrators(includeDeleted: true);
 
       final List<DeletedCondominiumItem> deletedCondos = [];
+      final List<DeletedUserItem> deletedUsers = [];
+
       for (final admin in allAdmins) {
-        final condos = await condoRepo.getDeletedCondominiumsByAdministrator(admin.id);
-        for (final condo in condos) {
+        // Carrega condomínios da lixeira
+        final condosInTrash = await condoRepo.getDeletedCondominiumsByAdministrator(admin.id);
+        for (final condo in condosInTrash) {
           deletedCondos.add(
             DeletedCondominiumItem(
               administrator: admin,
               condominium: condo,
             ),
           );
+        }
+
+        // Carrega condomínios gerais para buscar usuários na lixeira
+        final allCondos = await condoRepo.getCondominiumsByAdministrator(
+          admin.id,
+          includeDeleted: true,
+        );
+
+        for (final condo in allCondos) {
+          final usersInTrash = await userRepo.getDeletedUsers(admin.id, condo.id);
+          for (final u in usersInTrash) {
+            deletedUsers.add(
+              DeletedUserItem(
+                administrator: admin,
+                condominium: condo,
+                user: u,
+              ),
+            );
+          }
         }
       }
 
@@ -74,6 +111,7 @@ class _TrashPageState extends ConsumerState<TrashPage> {
         _isLoading = false;
         _trashAdministrators = deletedAdmins;
         _trashCondominiums = deletedCondos;
+        _trashUsers = deletedUsers;
       });
     } catch (e) {
       if (!mounted) return;
@@ -82,6 +120,50 @@ class _TrashPageState extends ConsumerState<TrashPage> {
         _error = e.toString();
       });
     }
+  }
+
+  Widget _buildRetentionBadge(DateTime? deletedAt) {
+    final difference = deletedAt != null
+        ? DateTime.now().difference(deletedAt).inDays
+        : 0;
+    final remaining = 30 - difference;
+
+    final isUrgent = remaining <= 3;
+    final label = remaining <= 0
+        ? 'Exclusão definitiva automática em < 24h'
+        : (remaining == 1
+            ? 'Exclusão definitiva em 1 dia'
+            : 'Exclusão definitiva em $remaining dias');
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: isUrgent ? Colors.red.shade50 : Colors.orange.shade50,
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: isUrgent ? Colors.red.shade300 : Colors.orange.shade300,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.timer_outlined,
+            size: 13,
+            color: isUrgent ? Colors.red.shade900 : Colors.orange.shade900,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: isUrgent ? Colors.red.shade900 : Colors.orange.shade900,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // --- Ações de Administradora ---
@@ -182,7 +264,7 @@ class _TrashPageState extends ConsumerState<TrashPage> {
         title: const Text('Excluir Condomínio Definitivamente?'),
         content: Text(
           'ATENÇÃO: Isso apagará DEFINITIVAMENTE o condomínio "${item.condominium.name}", '
-          'seus blocos, apartamentos, usuários e todas as leituras de gás e água associadas.\n\n'
+          'seus blocos, apartamentos, contas e todas as leituras de gás e água associadas.\n\n'
           'Esta ação NÃO pode ser desfeita.',
         ),
         actions: [
@@ -222,6 +304,83 @@ class _TrashPageState extends ConsumerState<TrashPage> {
     }
   }
 
+  // --- Ações de Usuário / Conta ---
+
+  Future<void> _restoreUser(DeletedUserItem item) async {
+    try {
+      final userRepo = ref.read(userRepositoryProvider);
+      await userRepo.restoreFromTrash(
+        item.administrator.id,
+        item.condominium.id,
+        item.user.id,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Conta de "${item.user.name}" restaurada com sucesso!')),
+      );
+      _loadTrash();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erro ao restaurar: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _permanentDeleteUser(DeletedUserItem item) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Excluir Conta Definitivamente?'),
+        content: Text(
+          'ATENÇÃO: Isso apagará DEFINITIVAMENTE a conta de "${item.user.name}" (${item.user.email}) '
+          'do sistema.\n\n'
+          'Esta ação NÃO pode ser desfeita.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Excluir Definitivamente'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        final userRepo = ref.read(userRepositoryProvider);
+        await userRepo.permanentDeleteUser(
+          item.administrator.id,
+          item.condominium.id,
+          item.user.id,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Conta de "${item.user.name}" excluída definitivamente.'),
+          ),
+        );
+        _loadTrash();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao excluir: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final query = _search.trim().toLowerCase();
@@ -238,6 +397,14 @@ class _TrashPageState extends ConsumerState<TrashPage> {
       return c.condominium.name.toLowerCase().contains(query) ||
           c.condominium.address.toLowerCase().contains(query) ||
           c.administrator.name.toLowerCase().contains(query);
+    }).toList();
+
+    final filteredUsers = _trashUsers.where((u) {
+      if (query.isEmpty) return true;
+      return u.user.name.toLowerCase().contains(query) ||
+          u.user.email.toLowerCase().contains(query) ||
+          u.condominium.name.toLowerCase().contains(query) ||
+          u.administrator.name.toLowerCase().contains(query);
     }).toList();
 
     return LayoutBuilder(
@@ -275,8 +442,10 @@ class _TrashPageState extends ConsumerState<TrashPage> {
                 )
               else if (_selectedTab == 0)
                 _buildAdministratorsList(context, filteredAdmins)
+              else if (_selectedTab == 1)
+                _buildCondominiumsList(context, filteredCondos)
               else
-                _buildCondominiumsList(context, filteredCondos),
+                _buildUsersList(context, filteredUsers),
             ],
           ),
         );
@@ -300,7 +469,8 @@ class _TrashPageState extends ConsumerState<TrashPage> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Gerencie itens removidos da operação. Restaure itens a qualquer momento ou force a exclusão permanente.',
+                'Itens removidos ficam suspensos na operação por 30 dias. '
+                'Você pode restaurá-los com integridade total ou forçar a exclusão imediata.',
                 style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -324,16 +494,31 @@ class _TrashPageState extends ConsumerState<TrashPage> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(Icons.shield_outlined, color: theme.colorScheme.error),
             const SizedBox(width: 14),
             Expanded(
-              child: Text(
-                'Segurança de Dados: Itens movidos para a lixeira ficam inoperantes e ocultos no painel e no app mobile, '
-                'mas seus dados de medição histórica são preservados até que você decida excluí-los em definitivo.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onErrorContainer,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Política de Segurança e Retenção (30 dias)',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Todos os itens movidos para a lixeira (administradoras, condomínios e contas de usuários) '
+                    'permanecem suspensos e guardados por 30 dias a partir da data de exclusão. '
+                    'Após esse prazo de 30 dias, o sistema exclui definitivamente os dados de forma automática.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -343,24 +528,44 @@ class _TrashPageState extends ConsumerState<TrashPage> {
   }
 
   Widget _buildSummaryCards(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: DashboardCard(
-            title: 'Administradoras na Lixeira',
-            value: _trashAdministrators.length.toString(),
-            icon: Icons.business_outlined,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: DashboardCard(
-            title: 'Condomínios na Lixeira',
-            value: _trashCondominiums.length.toString(),
-            icon: Icons.apartment_outlined,
-          ),
-        ),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isSmall = constraints.maxWidth < 800;
+        final cardWidth = isSmall
+            ? constraints.maxWidth
+            : (constraints.maxWidth - 32) / 3;
+
+        return Wrap(
+          spacing: 16,
+          runSpacing: 16,
+          children: [
+            SizedBox(
+              width: cardWidth,
+              child: DashboardCard(
+                title: 'Administradoras na Lixeira',
+                value: _trashAdministrators.length.toString(),
+                icon: Icons.business_outlined,
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: DashboardCard(
+                title: 'Condomínios na Lixeira',
+                value: _trashCondominiums.length.toString(),
+                icon: Icons.apartment_outlined,
+              ),
+            ),
+            SizedBox(
+              width: cardWidth,
+              child: DashboardCard(
+                title: 'Contas na Lixeira',
+                value: _trashUsers.length.toString(),
+                icon: Icons.people_outline,
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -377,6 +582,11 @@ class _TrashPageState extends ConsumerState<TrashPage> {
           label: Text('Condomínios (${_trashCondominiums.length})'),
           icon: const Icon(Icons.apartment_outlined),
         ),
+        ButtonSegment<int>(
+          value: 2,
+          label: Text('Contas (${_trashUsers.length})'),
+          icon: const Icon(Icons.people_outline),
+        ),
       ],
       selected: {_selectedTab},
       onSelectionChanged: (set) {
@@ -390,7 +600,9 @@ class _TrashPageState extends ConsumerState<TrashPage> {
       decoration: InputDecoration(
         hintText: _selectedTab == 0
             ? 'Buscar administradora por nome, e-mail ou telefone...'
-            : 'Buscar condomínio por nome, endereço ou administradora...',
+            : (_selectedTab == 1
+                ? 'Buscar condomínio por nome, endereço ou administradora...'
+                : 'Buscar conta por nome, e-mail, condomínio ou administradora...'),
         prefixIcon: const Icon(Icons.search),
         suffixIcon: _search.isNotEmpty
             ? IconButton(
@@ -451,13 +663,21 @@ class _TrashPageState extends ConsumerState<TrashPage> {
               children: [
                 const SizedBox(height: 4),
                 Text('E-mail: ${admin.email} • ${admin.phone ?? 'Sem telefone'}'),
-                const SizedBox(height: 2),
-                Text(
-                  deletedText,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      deletedText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    _buildRetentionBadge(admin.deletedAt),
+                  ],
                 ),
               ],
             ),
@@ -545,13 +765,21 @@ class _TrashPageState extends ConsumerState<TrashPage> {
               children: [
                 const SizedBox(height: 4),
                 Text(condo.address.isNotEmpty ? condo.address : 'Sem endereço informado'),
-                const SizedBox(height: 2),
-                Text(
-                  deletedText,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Theme.of(context).colorScheme.error,
-                  ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      deletedText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    _buildRetentionBadge(condo.deletedAt),
+                  ],
                 ),
               ],
             ),
@@ -568,6 +796,108 @@ class _TrashPageState extends ConsumerState<TrashPage> {
                     backgroundColor: Theme.of(context).colorScheme.error,
                   ),
                   onPressed: () => _permanentDeleteCondominium(item),
+                  icon: const Icon(Icons.delete_forever),
+                  label: const Text('Excluir definitivo'),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildUsersList(
+    BuildContext context,
+    List<DeletedUserItem> items,
+  ) {
+    if (items.isEmpty) {
+      return _buildEmptyState(
+        icon: Icons.people_outline,
+        title: 'Nenhuma conta na lixeira',
+        subtitle: _search.isNotEmpty
+            ? 'Nenhuma conta encontrada com os filtros atuais.'
+            : 'Todas as contas de usuários estão ativas no painel.',
+      );
+    }
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+      ),
+      child: ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: items.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (context, index) {
+          final item = items[index];
+          final user = item.user;
+          final deletedText = user.deletedAt != null
+              ? 'Excluído em ${_dateFormat.format(user.deletedAt!)}'
+              : 'Na lixeira';
+
+          return ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            leading: CircleAvatar(
+              backgroundColor: Theme.of(context).colorScheme.errorContainer,
+              child: Icon(Icons.person_outline, color: Theme.of(context).colorScheme.error),
+            ),
+            title: Row(
+              children: [
+                Text(
+                  user.name,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+                const SizedBox(width: 8),
+                Chip(
+                  label: Text(
+                    user.role.label,
+                    style: const TextStyle(fontSize: 11),
+                  ),
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ],
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 4),
+                Text('E-mail: ${user.email} • Condomínio: ${item.condominium.name} (${item.administrator.name})'),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      deletedText,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    _buildRetentionBadge(user.deletedAt),
+                  ],
+                ),
+              ],
+            ),
+            trailing: Wrap(
+              spacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _restoreUser(item),
+                  icon: const Icon(Icons.restore, color: Colors.green),
+                  label: const Text('Restaurar', style: TextStyle(color: Colors.green)),
+                ),
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                  ),
+                  onPressed: () => _permanentDeleteUser(item),
                   icon: const Icon(Icons.delete_forever),
                   label: const Text('Excluir definitivo'),
                 ),

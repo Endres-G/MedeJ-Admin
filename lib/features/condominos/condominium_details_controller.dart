@@ -1578,8 +1578,7 @@ class CondominiumDetailsController
     }
   }
 
-  /// Exclui a conta do condomínio e do sistema, e tenta remover do Firebase Auth
-  /// caso a senha temporária seja conhecida.
+  /// Move a conta de usuário do condomínio para a lixeira (Soft Delete).
   Future<bool> deleteCondominiumUser(UserModel user) async {
     final adminId = state.resolvedAdministratorId;
     if (adminId == null || adminId.isEmpty) return false;
@@ -1587,18 +1586,21 @@ class CondominiumDetailsController
     state = state.copyWith(isSaving: true, clearActionError: true);
 
     try {
-      await _userRepository.deleteUser(adminId, scope.condominiumId, user.id);
-      await _accountRoleRepository?.deleteAccountRole(user.id);
-
-      final tempPwd = user.temporaryPassword;
-      if (tempPwd != null && tempPwd.isNotEmpty) {
-        try {
-          await _userAuthProvisioner.deleteAuthUserWithPassword(
-            email: user.email,
-            password: tempPwd,
-          );
-        } catch (_) {}
-      }
+      await _userRepository.moveToTrash(adminId, scope.condominiumId, user.id);
+      await _accountRoleRepository?.saveAccountRole(
+        AccountRoleProfile(
+          uid: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          active: false,
+          mustChangePassword: user.mustChangePassword,
+          administratorId: adminId,
+          condominiumId: scope.condominiumId,
+          temporaryPassword: user.temporaryPassword,
+          createdAt: user.createdAt,
+        ),
+      );
 
       final updatedUsers = state.users.where((u) => u.id != user.id).toList();
 

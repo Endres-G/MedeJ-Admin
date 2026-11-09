@@ -1074,8 +1074,9 @@ class _CondominiumDetailsPageState
         title: const Text('Mover condomínio para lixeira?'),
         content: Text(
           'Deseja mover o condomínio "${condominium.name}" para a lixeira?\n\n'
-          'Suas medições, blocos e apartamentos ficarão inativos para a operação, '
-          'mas poderão ser restaurados a qualquer momento na Lixeira.',
+          'Suas medições, blocos e apartamentos ficarão suspensos na operação. '
+          'O item permanecerá na Lixeira por 30 dias antes de ser excluído definitivamente de forma automática '
+          '(você também pode restaurá-lo a qualquer momento na tela de Lixeira).',
         ),
         actions: [
           TextButton(

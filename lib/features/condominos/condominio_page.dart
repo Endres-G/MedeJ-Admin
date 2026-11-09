@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mede_ja_admin/app/routes/app_routes.dart';
 import 'package:mede_ja_admin/app/widgets/dashboard_card_widget.dart';
+import 'package:mede_ja_admin/features/admin/admin_details_controller.dart';
 import 'package:mede_ja_admin/features/dashboard/dashboard_controller.dart';
 
 class CondominiumsPage extends ConsumerStatefulWidget {
@@ -378,6 +379,11 @@ class _CondominiumsPageState extends ConsumerState<CondominiumsPage> {
                       },
                       child: const Text('Abrir'),
                     ),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline),
+                      tooltip: 'Mover para lixeira',
+                      onPressed: () => _handleMoveCondominiumToTrash(item),
+                    ),
                   ],
                 ),
               ),
@@ -387,5 +393,48 @@ class _CondominiumsPageState extends ConsumerState<CondominiumsPage> {
         }),
       ),
     );
+  }
+
+  Future<void> _handleMoveCondominiumToTrash(
+    DashboardCondominiumItem item,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Mover condomínio para lixeira?'),
+        content: Text(
+          'Deseja mover o condomínio "${item.condominium.name}" para a lixeira?\n\n'
+          'Suas medições, blocos e apartamentos ficarão suspensos na operação. '
+          'O item permanecerá na Lixeira por 30 dias antes de ser excluído definitivamente de forma automática '
+          '(você também pode restaurá-lo a qualquer momento na tela de Lixeira).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: Colors.orange.shade800),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Mover para lixeira'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      await ref
+          .read(condominiumRepositoryProvider)
+          .moveToTrash(item.administrator.id, item.condominium.id);
+      ref.read(dashboardControllerProvider.notifier).load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Condomínio "${item.condominium.name}" movido para a lixeira.',
+          ),
+        ),
+      );
+    }
   }
 }

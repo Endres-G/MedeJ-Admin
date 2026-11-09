@@ -1081,8 +1081,7 @@ class AccountsController extends StateNotifier<AccountsState> {
     }
   }
 
-  /// Exclui a conta do sistema e, se a senha temporária for conhecida,
-  /// remove também do Firebase Authentication.
+  /// Move a conta para a lixeira (Soft Delete) mantendo o registro por 30 dias.
   Future<bool> deleteAccount(AccountOverviewItem item) async {
     state = state.copyWith(isSaving: true, clearActionError: true);
 
@@ -1090,21 +1089,24 @@ class AccountsController extends StateNotifier<AccountsState> {
       if (!item.isPlatformStandaloneAccount) {
         final adminId = item.administrator!.id;
         final condoId = item.condominium!.id;
-        await _userRepository.deleteUser(adminId, condoId, item.user.id);
+        await _userRepository.moveToTrash(adminId, condoId, item.user.id);
         _onCachesInvalidated?.call(adminId, condoId);
       }
 
-      await _accountRoleRepository?.deleteAccountRole(item.user.id);
-
-      final tempPwd = item.user.temporaryPassword;
-      if (tempPwd != null && tempPwd.isNotEmpty) {
-        try {
-          await _userAuthProvisioner.deleteAuthUserWithPassword(
-            email: item.user.email,
-            password: tempPwd,
-          );
-        } catch (_) {}
-      }
+      await _accountRoleRepository?.saveAccountRole(
+        AccountRoleProfile(
+          uid: item.user.id,
+          name: item.user.name,
+          email: item.user.email,
+          role: item.user.role,
+          active: false,
+          mustChangePassword: item.user.mustChangePassword,
+          administratorId: item.administrator?.id,
+          condominiumId: item.condominium?.id,
+          temporaryPassword: item.user.temporaryPassword,
+          createdAt: item.user.createdAt,
+        ),
+      );
 
       final updatedStandalone = state.standalonePlatformAccounts
           .where((p) => p.uid != item.user.id)

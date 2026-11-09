@@ -9,9 +9,21 @@ class UserRepository {
 
   Future<List<UserModel>> getUsers(
     String administratorId,
+    String condominiumId, {
+    bool includeDeleted = false,
+  }) {
+    return _dataSource.getUsers(
+      administratorId,
+      condominiumId,
+      includeDeleted: includeDeleted,
+    );
+  }
+
+  Future<List<UserModel>> getDeletedUsers(
+    String administratorId,
     String condominiumId,
   ) {
-    return _dataSource.getUsers(administratorId, condominiumId);
+    return _dataSource.getDeletedUsers(administratorId, condominiumId);
   }
 
   Future<UserModel> getUser(
@@ -50,6 +62,30 @@ class UserRepository {
     UserModel user,
   ) {
     return _dataSource.updateUser(administratorId, condominiumId, user);
+  }
+
+  Future<void> moveToTrash(
+    String administratorId,
+    String condominiumId,
+    String userId,
+  ) {
+    return _dataSource.moveToTrash(administratorId, condominiumId, userId);
+  }
+
+  Future<void> restoreFromTrash(
+    String administratorId,
+    String condominiumId,
+    String userId,
+  ) {
+    return _dataSource.restoreFromTrash(administratorId, condominiumId, userId);
+  }
+
+  Future<void> permanentDeleteUser(
+    String administratorId,
+    String condominiumId,
+    String userId,
+  ) {
+    return _dataSource.permanentDeleteUser(administratorId, condominiumId, userId);
   }
 
   Future<void> deleteUser(

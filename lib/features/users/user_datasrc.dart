@@ -21,12 +21,30 @@ class UserFirestoreDataSource {
 
   Future<List<UserModel>> getUsers(
     String administratorId,
+    String condominiumId, {
+    bool includeDeleted = false,
+  }) async {
+    final snapshot = await _collection(administratorId, condominiumId).get();
+
+    final list = snapshot.docs
+        .map((doc) => UserModel.fromMap(doc.id, doc.data()))
+        .toList();
+
+    if (!includeDeleted) {
+      return list.where((u) => !u.isDeleted).toList();
+    }
+    return list;
+  }
+
+  Future<List<UserModel>> getDeletedUsers(
+    String administratorId,
     String condominiumId,
   ) async {
     final snapshot = await _collection(administratorId, condominiumId).get();
 
     return snapshot.docs
         .map((doc) => UserModel.fromMap(doc.id, doc.data()))
+        .where((u) => u.isDeleted)
         .toList();
   }
 
@@ -83,11 +101,44 @@ class UserFirestoreDataSource {
     ).doc(user.id).update(user.toMap());
   }
 
-  Future<void> deleteUser(
+  /// Move o usuário para a lixeira (Soft Delete)
+  Future<void> moveToTrash(
+    String administratorId,
+    String condominiumId,
+    String userId,
+  ) async {
+    await _collection(administratorId, condominiumId).doc(userId).update({
+      'deletedAt': FieldValue.serverTimestamp(),
+      'active': false,
+    });
+  }
+
+  /// Restaura o usuário da lixeira
+  Future<void> restoreFromTrash(
+    String administratorId,
+    String condominiumId,
+    String userId,
+  ) async {
+    await _collection(administratorId, condominiumId).doc(userId).update({
+      'deletedAt': FieldValue.delete(),
+      'active': true,
+    });
+  }
+
+  /// Exclusão física definitiva do usuário
+  Future<void> permanentDeleteUser(
     String administratorId,
     String condominiumId,
     String userId,
   ) async {
     await _collection(administratorId, condominiumId).doc(userId).delete();
+  }
+
+  Future<void> deleteUser(
+    String administratorId,
+    String condominiumId,
+    String userId,
+  ) async {
+    await moveToTrash(administratorId, condominiumId, userId);
   }
 }

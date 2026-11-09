@@ -66,6 +66,7 @@ class UserModel {
   /// Mantida enquanto [mustChangePassword] for true para permitir resgate/consulta.
   final String? temporaryPassword;
   final DateTime? createdAt;
+  final DateTime? deletedAt;
 
   const UserModel({
     required this.id,
@@ -77,9 +78,12 @@ class UserModel {
     this.mustChangePassword = false,
     this.temporaryPassword,
     this.createdAt,
+    this.deletedAt,
   });
 
   bool get isAdmin => role.isAdmin;
+
+  bool get isDeleted => deletedAt != null;
 
   factory UserModel.fromMap(String id, Map<String, dynamic> map) {
     final rawCreatedAt = map['createdAt'];
@@ -94,6 +98,18 @@ class UserModel {
       }
     }
 
+    final rawDeletedAt = map['deletedAt'];
+    DateTime? parsedDeletedAt;
+    if (rawDeletedAt is DateTime) {
+      parsedDeletedAt = rawDeletedAt;
+    } else if (rawDeletedAt != null) {
+      try {
+        parsedDeletedAt = (rawDeletedAt as dynamic).toDate() as DateTime?;
+      } catch (_) {
+        parsedDeletedAt = null;
+      }
+    }
+
     return UserModel(
       id: id,
       name: map['name'] as String? ?? '',
@@ -104,6 +120,7 @@ class UserModel {
       mustChangePassword: map['mustChangePassword'] as bool? ?? false,
       temporaryPassword: map['temporaryPassword'] as String?,
       createdAt: parsedCreatedAt,
+      deletedAt: parsedDeletedAt,
     );
   }
 
@@ -119,6 +136,7 @@ class UserModel {
       if (mustChangePassword && temporaryPassword != null && temporaryPassword!.isNotEmpty)
         'temporaryPassword': temporaryPassword,
       if (createdAt != null) 'createdAt': createdAt,
+      if (deletedAt != null) 'deletedAt': deletedAt,
     };
   }
 
@@ -134,6 +152,8 @@ class UserModel {
     String? temporaryPassword,
     bool clearTemporaryPassword = false,
     DateTime? createdAt,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -147,6 +167,7 @@ class UserModel {
           ? null
           : (temporaryPassword ?? this.temporaryPassword),
       createdAt: createdAt ?? this.createdAt,
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
     );
   }
 }
